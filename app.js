@@ -503,8 +503,11 @@ function renderTaskList() {
   if (filteredTasks.length === 0) {
     elements.emptyState.style.display = "flex";
 
-    // Customize empty state message based on active filters
-    if (state.searchQuery) {
+    // Customize empty state message based on active filters or general empty list
+    if (state.tasks.length === 0) {
+      elements.emptyStateTitle.textContent = "No tasks yet";
+      elements.emptyStateText.textContent = "Add a task to get started.";
+    } else if (state.searchQuery) {
       elements.emptyStateTitle.textContent = "No matching tasks";
       elements.emptyStateText.textContent = `No tasks matched your search query "${state.searchQuery}".`;
     } else if (state.currentFilter === "completed") {
@@ -514,8 +517,8 @@ function renderTaskList() {
       elements.emptyStateTitle.textContent = "All caught up!";
       elements.emptyStateText.textContent = "You don't have any pending tasks right now. Great job!";
     } else {
-      elements.emptyStateTitle.textContent = "No tasks found";
-      elements.emptyStateText.textContent = "Get started by adding your first task to TaskFlow.";
+      elements.emptyStateTitle.textContent = "No tasks yet";
+      elements.emptyStateText.textContent = "Add a task to get started.";
     }
     return;
   }
