@@ -1150,9 +1150,18 @@ html[data-theme="light"] .theme-toggle-btn .moon-icon {
   color: var(--text-main);
 }
 
+.action-btn.edit-btn:hover {
+  background-color: var(--primary-glow);
+  color: var(--primary-500);
+}
+
 .action-btn.delete-btn:hover {
   background-color: var(--priority-high-bg);
   color: var(--priority-high-text);
+}
+
+.task-card.overdue:not(.completed) {
+  border-left: 3px solid var(--stat-rose);
 }
 
 /* ==========================================================================

@@ -52,6 +52,15 @@ const DEFAULT_TASKS = [
     dueDate: getFormattedDateOffset(5), // 5 days from now
     completed: false,
     createdAt: new Date().toISOString()
+  },
+  {
+    id: "task-5",
+    title: "Submit compliance and security audit review",
+    description: "Annual security documentation review with compliance lead.",
+    priority: "high",
+    dueDate: getFormattedDateOffset(-2), // 2 days ago (Overdue)
+    completed: false,
+    createdAt: new Date().toISOString()
   }
 ];
 
@@ -75,7 +84,8 @@ const state = {
   searchQuery: "",
   sortBy: "dueDateAsc",      // 'dueDateAsc' | 'dueDateDesc' | 'priority' | 'newest'
   theme: "dark",             // 'light' | 'dark'
-  taskPendingDeletion: null  // Holds task ID during confirmation dialog
+  taskPendingDeletion: null, // Holds task ID during confirmation dialog
+  editingTaskId: null        // Holds task ID when editing an existing task
 };
 
 // ============================================================================
@@ -195,8 +205,10 @@ const elements = {
   emptyStateText: document.getElementById("emptyStateText"),
   emptyAddTaskBtn: document.getElementById("emptyAddTaskBtn"),
 
-  // Add Task Modal
+  // Add / Edit Task Modal
   taskModal: document.getElementById("taskModal"),
+  modalTitle: document.getElementById("modalTitle"),
+  modalSubtitle: document.querySelector(".modal-subtitle"),
   openAddTaskBtn: document.getElementById("openAddTaskBtn"),
   closeModalBtn: document.getElementById("closeModalBtn"),
   cancelModalBtn: document.getElementById("cancelModalBtn"),
@@ -206,6 +218,8 @@ const elements = {
   taskDueDateInput: document.getElementById("taskDueDateInput"),
   titleError: document.getElementById("titleError"),
   dateError: document.getElementById("dateError"),
+  saveTaskSubmitBtn: document.getElementById("saveTaskSubmitBtn"),
+  saveTaskBtnText: document.getElementById("saveTaskBtnText"),
 
   // Delete Confirm Modal
   deleteConfirmModal: document.getElementById("deleteConfirmModal"),
@@ -239,6 +253,24 @@ function addTask({ title, description, priority, dueDate }) {
   saveTasksToStorage(state.tasks);
   render();
   showToast("Task created successfully!", "success");
+}
+
+/**
+ * Updates an existing task with new data.
+ */
+function updateTask(taskId, { title, description, priority, dueDate }) {
+  const task = state.tasks.find((t) => t.id === taskId);
+  if (!task) return;
+
+  task.title = title.trim();
+  task.description = (description || "").trim();
+  task.priority = priority || "medium";
+  task.dueDate = dueDate;
+  task.updatedAt = new Date().toISOString();
+
+  saveTasksToStorage(state.tasks);
+  render();
+  showToast("Task updated successfully! ✨", "success");
 }
 
 /**
@@ -419,7 +451,7 @@ function renderFilters() {
  * Formats a due date for display, returning human-friendly status.
  */
 function formatDueDate(dueDateStr, isCompleted) {
-  if (!dueDateStr) return { text: "No date", statusClass: "" };
+  if (!dueDateStr) return { text: "No date", statusClass: "", isOverdue: false };
 
   const [year, month, day] = dueDateStr.split("-").map(Number);
   const dueDate = new Date(year, month - 1, day);
@@ -430,32 +462,33 @@ function formatDueDate(dueDateStr, isCompleted) {
   const tomorrow = new Date(today);
   tomorrow.setDate(today.getDate() + 1);
 
-  const yesterday = new Date(today);
-  yesterday.setDate(today.getDate() - 1);
-
   const dateTime = dueDate.getTime();
   const todayTime = today.getTime();
   const tomorrowTime = tomorrow.getTime();
 
+  const formattedDate = dueDate.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+
   // If completed, just show standard clean date
   if (isCompleted) {
     return {
-      text: dueDate.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-      statusClass: ""
+      text: formattedDate,
+      statusClass: "",
+      isOverdue: false
     };
   }
 
   // Check today / tomorrow / overdue
   if (dateTime === todayTime) {
-    return { text: "Due Today", statusClass: "due-today" };
+    return { text: "Due Today", statusClass: "due-today", isOverdue: false };
   } else if (dateTime === tomorrowTime) {
-    return { text: "Due Tomorrow", statusClass: "" };
+    return { text: "Due Tomorrow", statusClass: "", isOverdue: false };
   } else if (dateTime < todayTime) {
-    return { text: "Overdue", statusClass: "overdue" };
+    return { text: `Overdue · ${formattedDate}`, statusClass: "overdue", isOverdue: true };
   } else {
     return {
-      text: dueDate.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-      statusClass: ""
+      text: formattedDate,
+      statusClass: "",
+      isOverdue: false
     };
   }
 }
@@ -491,10 +524,11 @@ function renderTaskList() {
 
   filteredTasks.forEach((task) => {
     const li = document.createElement("li");
-    li.className = `task-card ${task.completed ? "completed" : ""}`;
-    li.setAttribute("data-id", task.id);
-
     const dateInfo = formatDueDate(task.dueDate, task.completed);
+    const isOverdue = !task.completed && dateInfo.isOverdue;
+
+    li.className = `task-card ${task.completed ? "completed" : ""} ${isOverdue ? "overdue" : ""}`;
+    li.setAttribute("data-id", task.id);
 
     li.innerHTML = `
       <div class="task-main-col">
@@ -542,6 +576,19 @@ function renderTaskList() {
 
         <!-- Task Actions -->
         <div class="task-actions">
+          <button
+            type="button"
+            class="action-btn edit-btn"
+            aria-label="Edit task: ${escapeHTML(task.title)}"
+            data-action="edit"
+            data-id="${task.id}"
+            title="Edit task"
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+            </svg>
+          </button>
           <button
             type="button"
             class="action-btn delete-btn"
@@ -613,6 +660,8 @@ function toggleTheme() {
  * Opens the Add Task dialog and initializes default form values.
  */
 function openTaskModal() {
+  state.editingTaskId = null;
+
   // Clear any previous error states
   elements.titleError.textContent = "";
   elements.dateError.textContent = "";
@@ -629,6 +678,11 @@ function openTaskModal() {
   const mediumRadio = elements.taskForm.querySelector('input[name="priority"][value="medium"]');
   if (mediumRadio) mediumRadio.checked = true;
 
+  // Update modal header & button text for Add mode
+  if (elements.modalTitle) elements.modalTitle.textContent = "Create New Task";
+  if (elements.modalSubtitle) elements.modalSubtitle.textContent = "Add details to organize and schedule your new task.";
+  if (elements.saveTaskBtnText) elements.saveTaskBtnText.textContent = "Save Task";
+
   // Open modal
   if (typeof elements.taskModal.showModal === "function") {
     elements.taskModal.showModal();
@@ -641,9 +695,52 @@ function openTaskModal() {
 }
 
 /**
- * Closes the Add Task dialog.
+ * Opens the Task Modal in Edit Mode, pre-populating with existing task data.
+ */
+function openEditTaskModal(taskId) {
+  const task = state.tasks.find((t) => t.id === taskId);
+  if (!task) return;
+
+  state.editingTaskId = taskId;
+
+  // Clear any previous error states
+  elements.titleError.textContent = "";
+  elements.dateError.textContent = "";
+  elements.taskTitleInput.classList.remove("input-error");
+  elements.taskDueDateInput.classList.remove("input-error");
+
+  // Pre-fill form fields with existing values
+  elements.taskTitleInput.value = task.title || "";
+  elements.taskDescInput.value = task.description || "";
+  elements.taskDueDateInput.value = task.dueDate || "";
+
+  // Select the matching priority radio
+  const priorityRadio = elements.taskForm.querySelector(
+    `input[name="priority"][value="${task.priority || "medium"}"]`
+  );
+  if (priorityRadio) priorityRadio.checked = true;
+
+  // Update modal header & button for Edit mode
+  if (elements.modalTitle) elements.modalTitle.textContent = "Edit Task";
+  if (elements.modalSubtitle) elements.modalSubtitle.textContent = "Update task details, priority, and deadline.";
+  if (elements.saveTaskBtnText) elements.saveTaskBtnText.textContent = "Update Task";
+
+  // Open modal
+  if (typeof elements.taskModal.showModal === "function") {
+    elements.taskModal.showModal();
+  } else {
+    elements.taskModal.setAttribute("open", "");
+  }
+
+  // Focus title input
+  setTimeout(() => elements.taskTitleInput.focus(), 50);
+}
+
+/**
+ * Closes the Add/Edit Task dialog.
  */
 function closeTaskModal() {
+  state.editingTaskId = null;
   if (typeof elements.taskModal.close === "function") {
     elements.taskModal.close();
   } else {
@@ -809,8 +906,12 @@ function setupEventListeners() {
 
     if (hasError) return;
 
-    // Save and close
-    addTask({ title, description, priority, dueDate });
+    // Save and close (branch between update and add)
+    if (state.editingTaskId) {
+      updateTask(state.editingTaskId, { title, description, priority, dueDate });
+    } else {
+      addTask({ title, description, priority, dueDate });
+    }
     closeTaskModal();
   });
 
@@ -819,6 +920,13 @@ function setupEventListeners() {
     if (elements.taskTitleInput.value.trim()) {
       elements.titleError.textContent = "";
       elements.taskTitleInput.classList.remove("input-error");
+    }
+  });
+
+  elements.taskDueDateInput.addEventListener("input", () => {
+    if (elements.taskDueDateInput.value) {
+      elements.dateError.textContent = "";
+      elements.taskDueDateInput.classList.remove("input-error");
     }
   });
 
@@ -908,7 +1016,15 @@ function setupEventListeners() {
       return;
     }
 
-    // 2. Delete button
+    // 2. Edit button
+    const editBtn = e.target.closest('[data-action="edit"]');
+    if (editBtn) {
+      const taskId = editBtn.dataset.id;
+      openEditTaskModal(taskId);
+      return;
+    }
+
+    // 3. Delete button
     const deleteBtn = e.target.closest('[data-action="delete"]');
     if (deleteBtn) {
       const taskId = deleteBtn.dataset.id;
