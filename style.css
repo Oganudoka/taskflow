@@ -1101,6 +1101,54 @@ html[data-theme="light"] .theme-toggle-btn .moon-icon {
   border: 1px solid var(--priority-low-border);
 }
 
+/* Category Badges */
+.badge-category {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.badge-category.work {
+  background-color: rgba(99, 102, 241, 0.12);
+  color: #818cf8;
+  border: 1px solid rgba(99, 102, 241, 0.25);
+}
+
+.badge-category.personal {
+  background-color: rgba(168, 85, 247, 0.12);
+  color: #c084fc;
+  border: 1px solid rgba(168, 85, 247, 0.25);
+}
+
+.badge-category.school {
+  background-color: rgba(20, 184, 166, 0.12);
+  color: #2dd4bf;
+  border: 1px solid rgba(20, 184, 166, 0.25);
+}
+
+html[data-theme="light"] .badge-category.work {
+  background-color: rgba(79, 70, 229, 0.1);
+  color: #4f46e5;
+  border-color: rgba(79, 70, 229, 0.25);
+}
+
+html[data-theme="light"] .badge-category.personal {
+  background-color: rgba(147, 51, 234, 0.1);
+  color: #9333ea;
+  border-color: rgba(147, 51, 234, 0.25);
+}
+
+html[data-theme="light"] .badge-category.school {
+  background-color: rgba(13, 148, 136, 0.1);
+  color: #0d9488;
+  border-color: rgba(13, 148, 136, 0.25);
+}
+
 /* Due Date Badge */
 .badge-date {
   display: inline-flex;

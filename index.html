@@ -309,6 +309,16 @@
                 </button>
               </div>
 
+              <!-- Category Filter Dropdown -->
+              <div class="select-wrapper">
+                <select id="categoryFilterSelect" aria-label="Filter by category">
+                  <option value="all">All Categories</option>
+                  <option value="Work">Work</option>
+                  <option value="Personal">Personal</option>
+                  <option value="School">School</option>
+                </select>
+              </div>
+
               <!-- Priority Filter Dropdown -->
               <div class="select-wrapper">
                 <select id="priorityFilterSelect" aria-label="Filter by priority">
@@ -420,33 +430,19 @@
           ></textarea>
         </div>
 
-        <!-- Priority and Due Date Row -->
+        <!-- Category and Due Date Row -->
         <div class="form-row">
-          <!-- Priority Selector -->
+          <!-- Category Selector -->
           <div class="form-group flex-1">
-            <label class="form-label" id="priorityLabel">Priority</label>
-            <div class="priority-radio-group" role="radiogroup" aria-labelledby="priorityLabel">
-              <label class="priority-radio-label high">
-                <input type="radio" name="priority" value="high">
-                <span class="radio-pill">
-                  <span class="pill-bullet"></span>
-                  High
-                </span>
-              </label>
-              <label class="priority-radio-label medium">
-                <input type="radio" name="priority" value="medium" checked>
-                <span class="radio-pill">
-                  <span class="pill-bullet"></span>
-                  Medium
-                </span>
-              </label>
-              <label class="priority-radio-label low">
-                <input type="radio" name="priority" value="low">
-                <span class="radio-pill">
-                  <span class="pill-bullet"></span>
-                  Low
-                </span>
-              </label>
+            <label for="taskCategorySelect" class="form-label">
+              Category <span class="required-star" aria-hidden="true">*</span>
+            </label>
+            <div class="select-wrapper">
+              <select id="taskCategorySelect" name="category" class="form-control" required>
+                <option value="Personal" selected>Personal</option>
+                <option value="Work">Work</option>
+                <option value="School">School</option>
+              </select>
             </div>
           </div>
 
@@ -463,6 +459,34 @@
               required
             >
             <span class="field-error-message" id="dateError" aria-live="polite"></span>
+          </div>
+        </div>
+
+        <!-- Priority Row -->
+        <div class="form-group">
+          <label class="form-label" id="priorityLabel">Priority</label>
+          <div class="priority-radio-group" role="radiogroup" aria-labelledby="priorityLabel">
+            <label class="priority-radio-label high">
+              <input type="radio" name="priority" value="high">
+              <span class="radio-pill">
+                <span class="pill-bullet"></span>
+                High
+              </span>
+            </label>
+            <label class="priority-radio-label medium">
+              <input type="radio" name="priority" value="medium" checked>
+              <span class="radio-pill">
+                <span class="pill-bullet"></span>
+                Medium
+              </span>
+            </label>
+            <label class="priority-radio-label low">
+              <input type="radio" name="priority" value="low">
+              <span class="radio-pill">
+                <span class="pill-bullet"></span>
+                Low
+              </span>
+            </label>
           </div>
         </div>
 

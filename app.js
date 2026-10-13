@@ -16,11 +16,30 @@
 // ============================================================================
 // 1. Initial Seed Data (Used on first launch if LocalStorage is empty)
 // ============================================================================
+const VALID_CATEGORIES = ["Personal", "Work", "School"];
+const DEFAULT_CATEGORY = "Personal";
+
+/**
+ * Normalizes and validates a category name.
+ * Falls back to "Personal" if invalid or missing.
+ */
+function normalizeCategory(category) {
+  if (typeof category === "string") {
+    const trimmed = category.trim();
+    const match = VALID_CATEGORIES.find(
+      (c) => c.toLowerCase() === trimmed.toLowerCase()
+    );
+    if (match) return match;
+  }
+  return DEFAULT_CATEGORY;
+}
+
 const DEFAULT_TASKS = [
   {
     id: "task-1",
     title: "Review Q4 product roadmap & sprint backlog",
     description: "Align with design and engineering leads on key release milestones.",
+    category: "Work",
     priority: "high",
     dueDate: getFormattedDateOffset(1), // Tomorrow
     completed: false,
@@ -30,6 +49,7 @@ const DEFAULT_TASKS = [
     id: "task-2",
     title: "Design user onboarding flow wireframes",
     description: "Draft high-fidelity mockups in Figma for new user signup experience.",
+    category: "Work",
     priority: "medium",
     dueDate: getFormattedDateOffset(3), // 3 days from now
     completed: false,
@@ -39,6 +59,7 @@ const DEFAULT_TASKS = [
     id: "task-3",
     title: "Conduct accessibility (a11y) audit for dashboard",
     description: "Check WCAG 2.1 AA color contrast and full keyboard navigation support.",
+    category: "School",
     priority: "high",
     dueDate: getFormattedDateOffset(0), // Today
     completed: true,
@@ -48,6 +69,7 @@ const DEFAULT_TASKS = [
     id: "task-4",
     title: "Update API documentation and integration endpoints",
     description: "Ensure Swagger docs accurately reflect all newly added webhook payloads.",
+    category: "Personal",
     priority: "low",
     dueDate: getFormattedDateOffset(5), // 5 days from now
     completed: false,
@@ -57,6 +79,7 @@ const DEFAULT_TASKS = [
     id: "task-5",
     title: "Submit compliance and security audit review",
     description: "Annual security documentation review with compliance lead.",
+    category: "Work",
     priority: "high",
     dueDate: getFormattedDateOffset(-2), // 2 days ago (Overdue)
     completed: false,
@@ -80,6 +103,7 @@ function getFormattedDateOffset(offsetDays) {
 const state = {
   tasks: [],
   currentFilter: "all",      // 'all' | 'active' | 'completed'
+  categoryFilter: "all",     // 'all' | 'Personal' | 'Work' | 'School'
   priorityFilter: "all",     // 'all' | 'high' | 'medium' | 'low'
   searchQuery: "",
   sortBy: "dueDateAsc",      // 'dueDateAsc' | 'dueDateDesc' | 'priority' | 'newest'
@@ -107,7 +131,14 @@ function loadTasksFromStorage() {
       return [...DEFAULT_TASKS];
     }
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [...DEFAULT_TASKS];
+    if (Array.isArray(parsed)) {
+      // Backward compatibility: ensure existing saved tasks have a valid category
+      return parsed.map((task) => ({
+        ...task,
+        category: normalizeCategory(task.category)
+      }));
+    }
+    return [...DEFAULT_TASKS];
   } catch (error) {
     console.error("Failed to load tasks from localStorage:", error);
     return [...DEFAULT_TASKS];
@@ -192,6 +223,7 @@ const elements = {
   // Search & Controls
   taskSearchInput: document.getElementById("taskSearchInput"),
   clearSearchBtn: document.getElementById("clearSearchBtn"),
+  categoryFilterSelect: document.getElementById("categoryFilterSelect"),
   priorityFilterSelect: document.getElementById("priorityFilterSelect"),
   sortSelect: document.getElementById("sortSelect"),
   activeFilterBanner: document.getElementById("activeFilterBanner"),
@@ -215,6 +247,7 @@ const elements = {
   taskForm: document.getElementById("taskForm"),
   taskTitleInput: document.getElementById("taskTitleInput"),
   taskDescInput: document.getElementById("taskDescInput"),
+  taskCategorySelect: document.getElementById("taskCategorySelect"),
   taskDueDateInput: document.getElementById("taskDueDateInput"),
   titleError: document.getElementById("titleError"),
   dateError: document.getElementById("dateError"),
@@ -238,11 +271,12 @@ const elements = {
 /**
  * Creates a new task object and adds it to the state.
  */
-function addTask({ title, description, priority, dueDate }) {
+function addTask({ title, description, priority, dueDate, category }) {
   const newTask = {
     id: "task-" + Date.now(),
     title: title.trim(),
     description: (description || "").trim(),
+    category: normalizeCategory(category),
     priority: priority || "medium",
     dueDate: dueDate,
     completed: false,
@@ -258,12 +292,13 @@ function addTask({ title, description, priority, dueDate }) {
 /**
  * Updates an existing task with new data.
  */
-function updateTask(taskId, { title, description, priority, dueDate }) {
+function updateTask(taskId, { title, description, priority, dueDate, category }) {
   const task = state.tasks.find((t) => t.id === taskId);
   if (!task) return;
 
   task.title = title.trim();
   task.description = (description || "").trim();
+  task.category = normalizeCategory(category);
   task.priority = priority || "medium";
   task.dueDate = dueDate;
   task.updatedAt = new Date().toISOString();
@@ -318,17 +353,26 @@ function getFilteredAndSortedTasks() {
       if (state.currentFilter === "active" && task.completed) return false;
       if (state.currentFilter === "completed" && !task.completed) return false;
 
-      // 2. Priority Filter: all, high, medium, low
+      // 2. Category Filter: all, Work, Personal, School
+      if (state.categoryFilter !== "all") {
+        const taskCategory = normalizeCategory(task.category);
+        if (taskCategory.toLowerCase() !== state.categoryFilter.toLowerCase()) {
+          return false;
+        }
+      }
+
+      // 3. Priority Filter: all, high, medium, low
       if (state.priorityFilter !== "all" && task.priority !== state.priorityFilter) {
         return false;
       }
 
-      // 3. Search Query Filter
+      // 4. Search Query Filter
       if (state.searchQuery) {
         const query = state.searchQuery.toLowerCase();
         const matchesTitle = task.title.toLowerCase().includes(query);
         const matchesDesc = (task.description || "").toLowerCase().includes(query);
-        if (!matchesTitle && !matchesDesc) return false;
+        const matchesCat = (task.category || "").toLowerCase().includes(query);
+        if (!matchesTitle && !matchesDesc && !matchesCat) return false;
       }
 
       return true;
@@ -428,14 +472,22 @@ function renderFilters() {
     if (el) el.classList.toggle("active", state.currentFilter === filter);
   });
 
-  // Sync priority dropdown
+  // Sync category & priority dropdowns
+  if (elements.categoryFilterSelect) {
+    elements.categoryFilterSelect.value = state.categoryFilter;
+  }
   elements.priorityFilterSelect.value = state.priorityFilter;
 
-  // Active filter banner (visible if priority filter or search is active)
-  if (state.priorityFilter !== "all" || state.searchQuery) {
+  // Active filter banner (visible if category, priority filter or search is active)
+  const isCategoryFiltered = state.categoryFilter !== "all";
+  const isPriorityFiltered = state.priorityFilter !== "all";
+  if (isCategoryFiltered || isPriorityFiltered || state.searchQuery) {
     elements.activeFilterBanner.style.display = "flex";
     const parts = [];
-    if (state.priorityFilter !== "all") {
+    if (isCategoryFiltered) {
+      parts.push(`Category: ${state.categoryFilter}`);
+    }
+    if (isPriorityFiltered) {
       parts.push(`Priority: ${state.priorityFilter.toUpperCase()}`);
     }
     if (state.searchQuery) {
@@ -510,6 +562,9 @@ function renderTaskList() {
     } else if (state.searchQuery) {
       elements.emptyStateTitle.textContent = "No matching tasks";
       elements.emptyStateText.textContent = `No tasks matched your search query "${state.searchQuery}".`;
+    } else if (state.categoryFilter !== "all") {
+      elements.emptyStateTitle.textContent = `No ${state.categoryFilter} tasks`;
+      elements.emptyStateText.textContent = `You don't have any tasks in the ${state.categoryFilter} category matching your filters.`;
     } else if (state.currentFilter === "completed") {
       elements.emptyStateTitle.textContent = "No completed tasks yet";
       elements.emptyStateText.textContent = "Complete your active tasks to see them archived here.";
@@ -529,6 +584,7 @@ function renderTaskList() {
     const li = document.createElement("li");
     const dateInfo = formatDueDate(task.dueDate, task.completed);
     const isOverdue = !task.completed && dateInfo.isOverdue;
+    const taskCategory = normalizeCategory(task.category);
 
     li.className = `task-card ${task.completed ? "completed" : ""} ${isOverdue ? "overdue" : ""}`;
     li.setAttribute("data-id", task.id);
@@ -560,8 +616,11 @@ function renderTaskList() {
       </div>
 
       <div class="task-side-col">
-        <!-- Badges (Priority & Due Date) -->
+        <!-- Badges (Category, Priority & Due Date) -->
         <div class="task-badges">
+          <span class="badge-category ${taskCategory.toLowerCase()}">
+            ${escapeHTML(taskCategory)}
+          </span>
           <span class="badge-priority ${task.priority}">
             <span class="priority-dot ${task.priority}"></span>
             ${task.priority}
@@ -674,6 +733,11 @@ function openTaskModal() {
   // Reset form fields
   elements.taskForm.reset();
 
+  // Set default category to Personal
+  if (elements.taskCategorySelect) {
+    elements.taskCategorySelect.value = DEFAULT_CATEGORY;
+  }
+
   // Set default due date to today
   elements.taskDueDateInput.value = getFormattedDateOffset(0);
 
@@ -716,6 +780,11 @@ function openEditTaskModal(taskId) {
   elements.taskTitleInput.value = task.title || "";
   elements.taskDescInput.value = task.description || "";
   elements.taskDueDateInput.value = task.dueDate || "";
+
+  // Pre-fill category selector
+  if (elements.taskCategorySelect) {
+    elements.taskCategorySelect.value = normalizeCategory(task.category);
+  }
 
   // Select the matching priority radio
   const priorityRadio = elements.taskForm.querySelector(
@@ -881,6 +950,7 @@ function setupEventListeners() {
     const title = elements.taskTitleInput.value.trim();
     const description = elements.taskDescInput.value.trim();
     const dueDate = elements.taskDueDateInput.value;
+    const category = elements.taskCategorySelect ? elements.taskCategorySelect.value : DEFAULT_CATEGORY;
     const priority = elements.taskForm.querySelector('input[name="priority"]:checked')?.value || "medium";
 
     let hasError = false;
@@ -911,9 +981,9 @@ function setupEventListeners() {
 
     // Save and close (branch between update and add)
     if (state.editingTaskId) {
-      updateTask(state.editingTaskId, { title, description, priority, dueDate });
+      updateTask(state.editingTaskId, { title, description, priority, dueDate, category });
     } else {
-      addTask({ title, description, priority, dueDate });
+      addTask({ title, description, priority, dueDate, category });
     }
     closeTaskModal();
   });
@@ -967,6 +1037,14 @@ function setupEventListeners() {
     });
   });
 
+  // Category Dropdown Select
+  if (elements.categoryFilterSelect) {
+    elements.categoryFilterSelect.addEventListener("change", (e) => {
+      state.categoryFilter = e.target.value;
+      render();
+    });
+  }
+
   // Priority Dropdown Select
   elements.priorityFilterSelect.addEventListener("change", (e) => {
     state.priorityFilter = e.target.value;
@@ -1001,10 +1079,12 @@ function setupEventListeners() {
 
   // Reset Filters Banner Button
   elements.clearFilterBtn.addEventListener("click", () => {
+    state.categoryFilter = "all";
     state.priorityFilter = "all";
     state.searchQuery = "";
     elements.taskSearchInput.value = "";
     elements.clearSearchBtn.style.display = "none";
+    if (elements.categoryFilterSelect) elements.categoryFilterSelect.value = "all";
     elements.priorityFilterSelect.value = "all";
     render();
   });
