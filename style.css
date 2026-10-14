@@ -141,6 +141,10 @@ body {
   overflow-x: hidden;
 }
 
+body:has(dialog[open]) {
+  overflow: hidden;
+}
+
 button, input, select, textarea {
   font-family: inherit;
   font-size: inherit;
@@ -1260,6 +1264,10 @@ html[data-theme="light"] .badge-category.school {
 /* ==========================================================================
    Modal Dialogs (HTML5 <dialog>)
    ========================================================================== */
+dialog {
+  overscroll-behavior: contain;
+}
+
 .modal-dialog {
   border: none;
   background: transparent;
@@ -1270,7 +1278,10 @@ html[data-theme="light"] .badge-category.school {
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-dialog);
   color: var(--text-main);
-  overflow: visible;
+  max-height: calc(100vh - 2rem);
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .modal-dialog.modal-sm {
