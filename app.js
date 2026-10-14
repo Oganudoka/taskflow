@@ -43,6 +43,10 @@ const DEFAULT_TASKS = [
     priority: "high",
     dueDate: getFormattedDateOffset(1), // Tomorrow
     completed: false,
+    subtasks: [
+      { id: "sub-seed-1", title: "Review milestone deliverable timeline", completed: true },
+      { id: "sub-seed-2", title: "Sync with engineering lead on capacity", completed: false }
+    ],
     createdAt: new Date().toISOString()
   },
   {
@@ -53,6 +57,10 @@ const DEFAULT_TASKS = [
     priority: "medium",
     dueDate: getFormattedDateOffset(3), // 3 days from now
     completed: false,
+    subtasks: [
+      { id: "sub-seed-3", title: "Draft mobile viewport wireframes", completed: false },
+      { id: "sub-seed-4", title: "Collect UX feedback from product team", completed: false }
+    ],
     createdAt: new Date().toISOString()
   },
   {
@@ -63,6 +71,7 @@ const DEFAULT_TASKS = [
     priority: "high",
     dueDate: getFormattedDateOffset(0), // Today
     completed: true,
+    subtasks: [],
     createdAt: new Date().toISOString()
   },
   {
@@ -73,6 +82,7 @@ const DEFAULT_TASKS = [
     priority: "low",
     dueDate: getFormattedDateOffset(5), // 5 days from now
     completed: false,
+    subtasks: [],
     createdAt: new Date().toISOString()
   },
   {
@@ -83,9 +93,18 @@ const DEFAULT_TASKS = [
     priority: "high",
     dueDate: getFormattedDateOffset(-2), // 2 days ago (Overdue)
     completed: false,
+    subtasks: [],
     createdAt: new Date().toISOString()
   }
 ];
+
+/**
+ * Generates a unique subtask ID.
+ * Follows requirement: "sub-" + Date.now() + a random suffix.
+ */
+function generateSubtaskId() {
+  return "sub-" + Date.now() + "-" + Math.random().toString(36).substring(2, 7);
+}
 
 // Helper to get a date string (YYYY-MM-DD) offset by N days
 function getFormattedDateOffset(offsetDays) {
@@ -132,10 +151,17 @@ function loadTasksFromStorage() {
     }
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed)) {
-      // Backward compatibility: ensure existing saved tasks have a valid category
+      // Backward compatibility: ensure existing saved tasks have a valid category and subtasks array
       return parsed.map((task) => ({
         ...task,
-        category: normalizeCategory(task.category)
+        category: normalizeCategory(task.category),
+        subtasks: Array.isArray(task.subtasks)
+          ? task.subtasks.map((st) => ({
+              id: st.id || generateSubtaskId(),
+              title: typeof st.title === "string" ? st.title.trim().slice(0, 100) : "",
+              completed: Boolean(st.completed)
+            }))
+          : []
       }));
     }
     return [...DEFAULT_TASKS];
@@ -249,6 +275,10 @@ const elements = {
   taskDescInput: document.getElementById("taskDescInput"),
   taskCategorySelect: document.getElementById("taskCategorySelect"),
   taskDueDateInput: document.getElementById("taskDueDateInput"),
+  subtaskInput: document.getElementById("subtaskInput"),
+  addSubtaskBtn: document.getElementById("addSubtaskBtn"),
+  modalSubtasksCount: document.getElementById("modalSubtasksCount"),
+  modalSubtaskList: document.getElementById("modalSubtaskList"),
   titleError: document.getElementById("titleError"),
   dateError: document.getElementById("dateError"),
   saveTaskSubmitBtn: document.getElementById("saveTaskSubmitBtn"),
@@ -271,7 +301,7 @@ const elements = {
 /**
  * Creates a new task object and adds it to the state.
  */
-function addTask({ title, description, priority, dueDate, category }) {
+function addTask({ title, description, priority, dueDate, category, subtasks = [] }) {
   const newTask = {
     id: "task-" + Date.now(),
     title: title.trim(),
@@ -280,6 +310,7 @@ function addTask({ title, description, priority, dueDate, category }) {
     priority: priority || "medium",
     dueDate: dueDate,
     completed: false,
+    subtasks: Array.isArray(subtasks) ? subtasks : [],
     createdAt: new Date().toISOString()
   };
 
@@ -292,7 +323,7 @@ function addTask({ title, description, priority, dueDate, category }) {
 /**
  * Updates an existing task with new data.
  */
-function updateTask(taskId, { title, description, priority, dueDate, category }) {
+function updateTask(taskId, { title, description, priority, dueDate, category, subtasks }) {
   const task = state.tasks.find((t) => t.id === taskId);
   if (!task) return;
 
@@ -301,11 +332,30 @@ function updateTask(taskId, { title, description, priority, dueDate, category })
   task.category = normalizeCategory(category);
   task.priority = priority || "medium";
   task.dueDate = dueDate;
+  if (Array.isArray(subtasks)) {
+    task.subtasks = subtasks;
+  }
   task.updatedAt = new Date().toISOString();
 
   saveTasksToStorage(state.tasks);
   render();
   showToast("Task updated successfully! ✨", "success");
+}
+
+/**
+ * Toggles a subtask's completion status without affecting parent task completion.
+ * Immediately persists to LocalStorage and updates the card.
+ */
+function toggleSubtaskCompletion(taskId, subtaskId) {
+  const task = state.tasks.find((t) => t.id === taskId);
+  if (!task || !Array.isArray(task.subtasks)) return;
+
+  const subtask = task.subtasks.find((st) => st.id === subtaskId);
+  if (!subtask) return;
+
+  subtask.completed = !subtask.completed;
+  saveTasksToStorage(state.tasks);
+  renderTaskList();
 }
 
 /**
@@ -372,7 +422,10 @@ function getFilteredAndSortedTasks() {
         const matchesTitle = task.title.toLowerCase().includes(query);
         const matchesDesc = (task.description || "").toLowerCase().includes(query);
         const matchesCat = (task.category || "").toLowerCase().includes(query);
-        if (!matchesTitle && !matchesDesc && !matchesCat) return false;
+        const matchesSubtasks =
+          Array.isArray(task.subtasks) &&
+          task.subtasks.some((st) => (st.title || "").toLowerCase().includes(query));
+        if (!matchesTitle && !matchesDesc && !matchesCat && !matchesSubtasks) return false;
       }
 
       return true;
@@ -589,6 +642,54 @@ function renderTaskList() {
     li.className = `task-card ${task.completed ? "completed" : ""} ${isOverdue ? "overdue" : ""}`;
     li.setAttribute("data-id", task.id);
 
+    const hasSubtasks = Array.isArray(task.subtasks) && task.subtasks.length > 0;
+    const completedSubtasks = hasSubtasks ? task.subtasks.filter((st) => st.completed).length : 0;
+    const totalSubtasks = hasSubtasks ? task.subtasks.length : 0;
+    const progressPercent = totalSubtasks === 0 ? 0 : Math.round((completedSubtasks / totalSubtasks) * 100);
+
+    const subtasksHTML = hasSubtasks
+      ? `
+        <div class="task-subtasks-container">
+          <div class="subtasks-progress-header">
+            <span class="subtasks-progress-title">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="9 11 12 14 22 4"></polyline>
+                <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
+              </svg>
+              Subtasks
+            </span>
+            <span class="subtasks-progress-label">${completedSubtasks}/${totalSubtasks}</span>
+          </div>
+          <div class="subtasks-progress-track" role="progressbar" aria-valuenow="${progressPercent}" aria-valuemin="0" aria-valuemax="100" aria-label="Subtasks completion progress">
+            <div class="subtasks-progress-fill" style="width: ${progressPercent}%;"></div>
+          </div>
+          <ul class="task-subtasks-list">
+            ${task.subtasks
+              .map(
+                (st) => `
+              <li class="task-subtask-item ${st.completed ? "completed" : ""}">
+                <button
+                  type="button"
+                  class="subtask-checkbox-btn ${st.completed ? "checked" : ""}"
+                  aria-label="${st.completed ? "Mark subtask incomplete" : "Mark subtask complete"}: ${escapeHTML(st.title)}"
+                  data-action="toggle-subtask"
+                  data-task-id="${escapeHTML(task.id)}"
+                  data-subtask-id="${escapeHTML(st.id)}"
+                >
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                  </svg>
+                </button>
+                <span class="subtask-text" data-action="toggle-subtask" data-task-id="${escapeHTML(task.id)}" data-subtask-id="${escapeHTML(st.id)}">${escapeHTML(st.title)}</span>
+              </li>
+            `
+              )
+              .join("")}
+          </ul>
+        </div>
+      `
+      : "";
+
     li.innerHTML = `
       <div class="task-main-col">
         <!-- Toggle Checkbox -->
@@ -612,6 +713,7 @@ function renderTaskList() {
               ? `<div class="task-description">${escapeHTML(task.description)}</div>`
               : ""
           }
+          ${subtasksHTML}
         </div>
       </div>
 
@@ -715,8 +817,75 @@ function toggleTheme() {
 }
 
 // ============================================================================
-// 9. Modal Management
+// 9. Modal Management & Subtasks State
 // ============================================================================
+let modalSubtasks = [];
+
+/**
+ * Renders the list of subtasks in the Add/Edit Task modal.
+ * Escapes user text to prevent XSS. Every remove button is type="button".
+ */
+function renderModalSubtasks() {
+  if (!elements.modalSubtaskList || !elements.modalSubtasksCount) return;
+
+  const count = modalSubtasks.length;
+  elements.modalSubtasksCount.textContent = `${count} ${count === 1 ? "item" : "items"}`;
+  elements.modalSubtaskList.innerHTML = "";
+
+  modalSubtasks.forEach((st) => {
+    const li = document.createElement("li");
+    li.className = "modal-subtask-item";
+    li.innerHTML = `
+      <span class="modal-subtask-icon">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="9 11 12 14 22 4"></polyline>
+          <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
+        </svg>
+      </span>
+      <span class="modal-subtask-title">${escapeHTML(st.title)}</span>
+      <button
+        type="button"
+        class="modal-subtask-remove-btn"
+        data-action="remove-subtask"
+        data-id="${escapeHTML(st.id)}"
+        aria-label="Remove checklist item: ${escapeHTML(st.title)}"
+        title="Remove item"
+      >
+        &times;
+      </button>
+    `;
+    elements.modalSubtaskList.appendChild(li);
+  });
+}
+
+/**
+ * Adds a subtask from modal input field.
+ * Validates non-empty, trimmed, and limits to 100 characters max.
+ */
+function addSubtaskFromModal() {
+  if (!elements.subtaskInput) return;
+  const rawTitle = elements.subtaskInput.value.trim();
+  if (!rawTitle) return;
+
+  const title = rawTitle.slice(0, 100);
+  modalSubtasks.push({
+    id: generateSubtaskId(),
+    title: title,
+    completed: false
+  });
+
+  elements.subtaskInput.value = "";
+  renderModalSubtasks();
+  elements.subtaskInput.focus();
+}
+
+/**
+ * Removes a subtask from modal list by ID.
+ */
+function removeSubtaskFromModal(subtaskId) {
+  modalSubtasks = modalSubtasks.filter((st) => st.id !== subtaskId);
+  renderModalSubtasks();
+}
 
 /**
  * Opens the Add Task dialog and initializes default form values.
@@ -732,6 +901,11 @@ function openTaskModal() {
 
   // Reset form fields
   elements.taskForm.reset();
+
+  // Reset subtasks for modal
+  modalSubtasks = [];
+  if (elements.subtaskInput) elements.subtaskInput.value = "";
+  renderModalSubtasks();
 
   // Set default category to Personal
   if (elements.taskCategorySelect) {
@@ -781,6 +955,13 @@ function openEditTaskModal(taskId) {
   elements.taskDescInput.value = task.description || "";
   elements.taskDueDateInput.value = task.dueDate || "";
 
+  // Pre-fill subtasks for modal
+  modalSubtasks = Array.isArray(task.subtasks)
+    ? task.subtasks.map((st) => ({ ...st }))
+    : [];
+  if (elements.subtaskInput) elements.subtaskInput.value = "";
+  renderModalSubtasks();
+
   // Pre-fill category selector
   if (elements.taskCategorySelect) {
     elements.taskCategorySelect.value = normalizeCategory(task.category);
@@ -813,6 +994,8 @@ function openEditTaskModal(taskId) {
  */
 function closeTaskModal() {
   state.editingTaskId = null;
+  modalSubtasks = [];
+  if (elements.subtaskInput) elements.subtaskInput.value = "";
   if (typeof elements.taskModal.close === "function") {
     elements.taskModal.close();
   } else {
@@ -981,12 +1164,58 @@ function setupEventListeners() {
 
     // Save and close (branch between update and add)
     if (state.editingTaskId) {
-      updateTask(state.editingTaskId, { title, description, priority, dueDate, category });
+      updateTask(state.editingTaskId, {
+        title,
+        description,
+        priority,
+        dueDate,
+        category,
+        subtasks: [...modalSubtasks]
+      });
     } else {
-      addTask({ title, description, priority, dueDate, category });
+      addTask({
+        title,
+        description,
+        priority,
+        dueDate,
+        category,
+        subtasks: [...modalSubtasks]
+      });
     }
     closeTaskModal();
   });
+
+  // Modal Subtasks input (Enter key adds subtask without submitting the form)
+  if (elements.subtaskInput) {
+    elements.subtaskInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        addSubtaskFromModal();
+      }
+    });
+  }
+
+  // Modal Add Subtask button
+  if (elements.addSubtaskBtn) {
+    elements.addSubtaskBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      addSubtaskFromModal();
+    });
+  }
+
+  // Modal Subtasks list remove button delegation
+  if (elements.modalSubtaskList) {
+    elements.modalSubtaskList.addEventListener("click", (e) => {
+      const removeBtn = e.target.closest('[data-action="remove-subtask"]');
+      if (removeBtn) {
+        e.preventDefault();
+        const id = removeBtn.dataset.id;
+        if (id) {
+          removeSubtaskFromModal(id);
+        }
+      }
+    });
+  }
 
   // Input clear error styling on type
   elements.taskTitleInput.addEventListener("input", () => {
@@ -1091,6 +1320,18 @@ function setupEventListeners() {
 
   // Task List Event Delegation (Clicking checkbox or delete button)
   elements.taskList.addEventListener("click", (e) => {
+    // 0. Toggle subtask completion
+    const subtaskToggle = e.target.closest('[data-action="toggle-subtask"]');
+    if (subtaskToggle) {
+      e.stopPropagation();
+      const taskId = subtaskToggle.dataset.taskId;
+      const subtaskId = subtaskToggle.dataset.subtaskId;
+      if (taskId && subtaskId) {
+        toggleSubtaskCompletion(taskId, subtaskId);
+      }
+      return;
+    }
+
     // 1. Toggle completion button
     const toggleBtn = e.target.closest('[data-action="toggle"]');
     if (toggleBtn) {

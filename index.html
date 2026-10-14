@@ -490,6 +490,36 @@
           </div>
         </div>
 
+        <!-- Subtasks Section -->
+        <div class="form-group subtasks-form-group">
+          <div class="subtasks-header">
+            <label for="subtaskInput" class="form-label">
+              Subtasks <span class="optional-label">(Checklist)</span>
+            </label>
+            <span class="subtasks-count-badge" id="modalSubtasksCount">0 items</span>
+          </div>
+          <div class="subtask-input-wrapper">
+            <input
+              type="text"
+              id="subtaskInput"
+              class="form-control"
+              placeholder="Add a checklist item (press Enter or click Add)..."
+              maxlength="100"
+              autocomplete="off"
+            >
+            <button type="button" class="btn btn-secondary btn-subtask-add" id="addSubtaskBtn" aria-label="Add subtask">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+              </svg>
+              <span>Add</span>
+            </button>
+          </div>
+          <ul class="modal-subtask-list" id="modalSubtaskList">
+            <!-- Dynamic subtask items will be rendered here -->
+          </ul>
+        </div>
+
         <!-- Modal Actions -->
         <div class="modal-footer">
           <button type="button" class="btn btn-ghost" id="cancelModalBtn">Cancel</button>
