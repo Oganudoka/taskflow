@@ -486,6 +486,105 @@ ul, ol {
   box-shadow: var(--shadow-sm);
 }
 
+.btn-topbar-action {
+  padding: 8px 14px;
+  font-size: 0.85rem;
+  border-radius: var(--radius-full);
+  gap: 6px;
+}
+
+/* Backup Dropdown */
+.backup-dropdown-wrapper {
+  position: relative;
+  display: inline-flex;
+}
+
+.backup-dropdown-wrapper .dropdown-chevron {
+  transition: transform var(--transition-fast);
+  color: var(--text-muted);
+}
+
+.backup-dropdown-wrapper[data-open="true"] .dropdown-chevron {
+  transform: rotate(180deg);
+  color: var(--text-main);
+}
+
+.backup-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 270px;
+  max-width: calc(100vw - 32px);
+  background-color: var(--bg-surface-elevated);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  z-index: 1000;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  animation: dropdownFadeIn 0.15s ease-out;
+}
+
+.backup-dropdown-menu[hidden] {
+  display: none !important;
+}
+
+@keyframes dropdownFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.backup-menu-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  text-align: left;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: background-color var(--transition-fast), color var(--transition-fast);
+  width: 100%;
+  font-family: inherit;
+  color: var(--text-main);
+}
+
+.backup-menu-item:hover,
+.backup-menu-item:focus,
+.backup-menu-item:focus-visible {
+  background-color: var(--bg-surface-hover);
+  outline: none;
+}
+
+.backup-menu-item:focus-visible {
+  box-shadow: 0 0 0 2px var(--primary-500);
+}
+
+.backup-item-title {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text-main);
+  line-height: 1.3;
+}
+
+.backup-item-subtitle {
+  font-size: 0.76rem;
+  color: var(--text-muted);
+  line-height: 1.3;
+  margin-top: 2px;
+}
+
 .theme-toggle-icon {
   display: flex;
   align-items: center;
@@ -1496,6 +1595,158 @@ dialog {
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
 }
 
+#importModal .modal-body-preview {
+  border-left-color: var(--primary-500);
+  font-weight: 400;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.import-preview-stats {
+  font-size: 0.92rem;
+  color: var(--text-main);
+}
+
+.import-preview-warning {
+  font-size: 0.82rem;
+  color: var(--stat-rose);
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.restore-options-group {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 12px 28px 16px;
+}
+
+.btn-restore-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  text-align: left;
+  padding: 14px 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-medium);
+  background-color: var(--bg-surface);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  font-family: inherit;
+  width: 100%;
+}
+
+.btn-restore-option:hover {
+  background-color: var(--bg-surface-hover);
+  border-color: var(--primary-500);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+.btn-restore-option:focus-visible {
+  outline: 2px solid var(--primary-500);
+  outline-offset: 2px;
+}
+
+.restore-option-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.btn-restore-add .restore-option-header svg {
+  color: var(--primary-500);
+}
+
+.btn-restore-replace .restore-option-header svg {
+  color: var(--stat-rose);
+}
+
+.btn-restore-replace:hover {
+  border-color: var(--stat-rose);
+}
+
+.restore-option-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.restore-option-desc {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  line-height: 1.35;
+}
+
+.restore-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 8px 28px 20px;
+}
+
+/* Dismissible Storage Tip Banner */
+.storage-tip-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 20px;
+  padding: 12px 18px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--primary-500);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  transition: opacity var(--transition-fast), transform var(--transition-fast);
+}
+
+.storage-tip-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+}
+
+.storage-tip-icon {
+  color: var(--primary-500);
+  flex-shrink: 0;
+}
+
+.storage-tip-text {
+  font-size: 0.88rem;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.storage-tip-btn {
+  padding: 6px 14px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--primary-500);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-surface-elevated);
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  font-family: inherit;
+}
+
+.storage-tip-btn:hover {
+  background-color: var(--primary-500);
+  color: #ffffff;
+  border-color: var(--primary-500);
+}
+
+.storage-tip-btn:focus-visible {
+  outline: 2px solid var(--primary-500);
+  outline-offset: 2px;
+}
+
 .form-group {
   display: flex;
   flex-direction: column;
@@ -1906,6 +2157,14 @@ dialog {
     padding: 8px;
   }
 
+  .btn-topbar-action .btn-topbar-text {
+    display: none;
+  }
+
+  .btn-topbar-action {
+    padding: 8px;
+  }
+
   .task-card {
     flex-direction: column;
     align-items: stretch;
@@ -1920,5 +2179,23 @@ dialog {
 
   .form-row {
     flex-direction: column;
+  }
+
+  .storage-tip-banner {
+    padding: 10px 14px;
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+
+  .storage-tip-text {
+    font-size: 0.82rem;
+  }
+
+  .restore-options-group {
+    margin: 8px 16px 12px;
+  }
+
+  .restore-modal-footer {
+    padding: 8px 16px 16px;
   }
 }

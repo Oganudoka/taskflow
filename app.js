@@ -99,6 +99,14 @@ const DEFAULT_TASKS = [
 ];
 
 /**
+ * Generates a unique task ID.
+ * Follows requirement: "task-" + Date.now() + "-" + a random suffix.
+ */
+function generateTaskId() {
+  return "task-" + Date.now() + "-" + Math.random().toString(36).substring(2, 7);
+}
+
+/**
  * Generates a unique subtask ID.
  * Follows requirement: "sub-" + Date.now() + a random suffix.
  */
@@ -136,7 +144,8 @@ const state = {
 // ============================================================================
 const STORAGE_KEYS = {
   TASKS: "taskflow_tasks",
-  THEME: "taskflow_theme"
+  THEME: "taskflow_theme",
+  BACKUP_TIP_DISMISSED: "taskflow_backup_tip_dismissed"
 };
 
 /**
@@ -290,6 +299,25 @@ const elements = {
   cancelDeleteBtn: document.getElementById("cancelDeleteBtn"),
   confirmDeleteBtn: document.getElementById("confirmDeleteBtn"),
 
+  // Backup Dropdown & Storage Tip
+  backupDropdownWrapper: document.getElementById("backupDropdownWrapper"),
+  backupMenuBtn: document.getElementById("backupMenuBtn"),
+  backupDropdownMenu: document.getElementById("backupDropdownMenu"),
+  storageTipBanner: document.getElementById("storageTipBanner"),
+  dismissStorageTipBtn: document.getElementById("dismissStorageTipBtn"),
+
+  // Topbar Backup Actions (dropdown items & hidden file input)
+  importTasksBtn: document.getElementById("importTasksBtn"),
+  importFileInput: document.getElementById("importFileInput"),
+  exportTasksBtn: document.getElementById("exportTasksBtn"),
+
+  // Restore Tasks Modal
+  importModal: document.getElementById("importModal"),
+  importSummaryPreview: document.getElementById("importSummaryPreview"),
+  cancelImportBtn: document.getElementById("cancelImportBtn"),
+  mergeImportBtn: document.getElementById("mergeImportBtn"),
+  replaceImportBtn: document.getElementById("replaceImportBtn"),
+
   // Toast Container
   toastContainer: document.getElementById("toastContainer")
 };
@@ -303,7 +331,7 @@ const elements = {
  */
 function addTask({ title, description, priority, dueDate, category, subtasks = [] }) {
   const newTask = {
-    id: "task-" + Date.now(),
+    id: generateTaskId(),
     title: title.trim(),
     description: (description || "").trim(),
     category: normalizeCategory(category),
@@ -1033,6 +1061,405 @@ function closeDeleteModal() {
 }
 
 // ============================================================================
+// 10. Backup & Restore Management
+// ============================================================================
+const INVALID_BACKUP_MSG = "This file isn't a TaskFlow backup. Please choose the file you saved from TaskFlow.";
+let pendingImportTasks = [];
+
+/**
+ * Saves a copy of all tasks (with subtasks) as a downloadable file.
+ * Filename format: taskflow-backup-YYYY-MM-DD.json
+ */
+function exportTasks() {
+  if (state.tasks.length === 0) {
+    showToast("You have no tasks to save yet.", "info");
+    return;
+  }
+
+  try {
+    const jsonStr = JSON.stringify(state.tasks, null, 2);
+    const blob = new Blob([jsonStr], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const dateStr = getFormattedDateOffset(0);
+    const filename = `taskflow-backup-${dateStr}.json`;
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+
+    // Revoke the object URL after triggering download
+    setTimeout(() => {
+      URL.revokeObjectURL(url);
+    }, 100);
+
+    showToast("Your tasks were saved to a file. Keep it somewhere safe.", "success");
+  } catch (err) {
+    console.error("Backup failed:", err);
+    showToast("Could not save your tasks. Please try again.", "danger");
+  }
+}
+
+/**
+ * Opens the Restore Modal dialog with a preview summary and replace warning.
+ */
+function openImportModal(validTasks) {
+  pendingImportTasks = validTasks;
+  const currentCount = state.tasks.length;
+  const countText = `This file has ${validTasks.length} ${validTasks.length === 1 ? "task" : "tasks"}.`;
+  const warningText = `Replace will delete your current ${currentCount} ${currentCount === 1 ? "task" : "tasks"}.`;
+
+  elements.importSummaryPreview.innerHTML = `
+    <div class="import-preview-stats">
+      ${escapeHTML(countText)}
+    </div>
+    <div class="import-preview-warning">
+      ⚠️ ${escapeHTML(warningText)}
+    </div>
+  `;
+
+  if (typeof elements.importModal.showModal === "function") {
+    elements.importModal.showModal();
+  } else {
+    elements.importModal.setAttribute("open", "");
+  }
+}
+
+/**
+ * Closes the Restore Modal dialog and resets pending import data.
+ */
+function closeImportModal() {
+  pendingImportTasks = [];
+  if (elements.importFileInput) {
+    elements.importFileInput.value = "";
+  }
+  if (typeof elements.importModal.close === "function") {
+    elements.importModal.close();
+  } else {
+    elements.importModal.removeAttribute("open");
+  }
+}
+
+/**
+ * Validates, normalizes, and whitelists backup task data.
+ */
+function processImportedJson(jsonText) {
+  let parsed;
+  try {
+    parsed = JSON.parse(jsonText);
+  } catch (err) {
+    showToast(INVALID_BACKUP_MSG, "danger");
+    return;
+  }
+
+  if (!Array.isArray(parsed) || parsed.length === 0) {
+    showToast(INVALID_BACKUP_MSG, "danger");
+    return;
+  }
+
+  const validTasks = [];
+  const seenTaskIds = new Set();
+
+  for (const rawTask of parsed) {
+    // 1. Must be a non-null object (not array)
+    if (!rawTask || typeof rawTask !== "object" || Array.isArray(rawTask)) {
+      showToast(INVALID_BACKUP_MSG, "danger");
+      return;
+    }
+
+    // 2. Title validation: string, non-empty after trimming
+    if (typeof rawTask.title !== "string" || !rawTask.title.trim()) {
+      showToast(INVALID_BACKUP_MSG, "danger");
+      return;
+    }
+
+    // 3. Category validation: valid known category
+    if (
+      typeof rawTask.category !== "string" ||
+      !VALID_CATEGORIES.some((c) => c.toLowerCase() === rawTask.category.trim().toLowerCase())
+    ) {
+      showToast(INVALID_BACKUP_MSG, "danger");
+      return;
+    }
+
+    // 4. Priority validation: high, medium, low
+    if (
+      typeof rawTask.priority !== "string" ||
+      !["high", "medium", "low"].includes(rawTask.priority.trim().toLowerCase())
+    ) {
+      showToast(INVALID_BACKUP_MSG, "danger");
+      return;
+    }
+
+    // 5. Due date validation: YYYY-MM-DD
+    const dueDateStr = typeof rawTask.dueDate === "string" ? rawTask.dueDate.trim() : "";
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dueDateStr) || isNaN(Date.parse(dueDateStr))) {
+      showToast(INVALID_BACKUP_MSG, "danger");
+      return;
+    }
+
+    // 6. Completed validation: must be boolean
+    if (typeof rawTask.completed !== "boolean") {
+      showToast(INVALID_BACKUP_MSG, "danger");
+      return;
+    }
+
+    // 7. Subtasks validation (optional)
+    if (rawTask.subtasks !== undefined && !Array.isArray(rawTask.subtasks)) {
+      showToast(INVALID_BACKUP_MSG, "danger");
+      return;
+    }
+
+    // 8. ID deduplication within the backup file itself
+    let taskId = typeof rawTask.id === "string" && rawTask.id.trim() ? rawTask.id.trim() : "";
+    if (!taskId || seenTaskIds.has(taskId)) {
+      taskId = generateTaskId();
+    }
+    seenTaskIds.add(taskId);
+
+    // 9. Subtask normalization & ID deduplication
+    const seenSubtaskIds = new Set();
+    const normalizedSubtasks = Array.isArray(rawTask.subtasks)
+      ? rawTask.subtasks.map((st) => {
+          let stId = typeof st.id === "string" && st.id.trim() ? st.id.trim() : "";
+          if (!stId || seenSubtaskIds.has(stId)) {
+            stId = generateSubtaskId();
+          }
+          seenSubtaskIds.add(stId);
+          return {
+            id: stId,
+            title: typeof st.title === "string" ? st.title.trim().slice(0, 100) : "",
+            completed: Boolean(st.completed)
+          };
+        })
+      : [];
+
+    // 10. Whitelist known fields only and enforce limits:
+    // title max 120 chars, description max 400 chars, subtask title max 100 chars
+    const normalizedTask = {
+      id: taskId,
+      title: rawTask.title.trim().slice(0, 120),
+      description: typeof rawTask.description === "string" ? rawTask.description.trim().slice(0, 400) : "",
+      category: normalizeCategory(rawTask.category),
+      priority: rawTask.priority.trim().toLowerCase(),
+      dueDate: dueDateStr,
+      completed: Boolean(rawTask.completed),
+      createdAt:
+        typeof rawTask.createdAt === "string" && rawTask.createdAt.trim()
+          ? rawTask.createdAt.trim()
+          : new Date().toISOString(),
+      subtasks: normalizedSubtasks
+    };
+
+    if (typeof rawTask.updatedAt === "string" && rawTask.updatedAt.trim()) {
+      normalizedTask.updatedAt = rawTask.updatedAt.trim();
+    }
+
+    validTasks.push(normalizedTask);
+  }
+
+  // Open confirmation modal
+  openImportModal(validTasks);
+}
+
+/**
+ * Handles file reading from the file picker with try/catch.
+ */
+async function handleImportFile(file) {
+  if (!file) return;
+
+  try {
+    const text = await file.text();
+    processImportedJson(text);
+  } catch (err) {
+    console.error("Failed to read backup file:", err);
+    showToast(INVALID_BACKUP_MSG, "danger");
+  }
+}
+
+/**
+ * Adds missing tasks from backup to current tasks.
+ */
+function applyImportMerge() {
+  if (pendingImportTasks.length === 0) {
+    closeImportModal();
+    return;
+  }
+
+  const existingIds = new Set(state.tasks.map((t) => t.id));
+  const newTasks = pendingImportTasks.filter((t) => !existingIds.has(t.id));
+
+  state.tasks = [...newTasks, ...state.tasks];
+
+  try {
+    saveTasksToStorage(state.tasks);
+    render();
+    if (newTasks.length === 0) {
+      showToast(
+        `Nothing new to add. All ${pendingImportTasks.length} ${pendingImportTasks.length === 1 ? "task" : "tasks"} in this file are already in TaskFlow.`,
+        "info"
+      );
+    } else {
+      showToast(`Added ${newTasks.length} ${newTasks.length === 1 ? "task" : "tasks"}.`, "success");
+    }
+  } catch (err) {
+    console.error("Failed to save tasks:", err);
+    showToast("Could not save your tasks. Please try again.", "danger");
+  }
+
+  closeImportModal();
+}
+
+/**
+ * Replaces all current tasks with tasks from the backup.
+ */
+function applyImportReplace() {
+  if (pendingImportTasks.length === 0) {
+    closeImportModal();
+    return;
+  }
+
+  state.tasks = [...pendingImportTasks];
+
+  try {
+    saveTasksToStorage(state.tasks);
+    render();
+    showToast("Your tasks were restored.", "success");
+  } catch (err) {
+    console.error("Failed to save tasks:", err);
+    showToast("Could not save your tasks. Please try again.", "danger");
+  }
+
+  closeImportModal();
+}
+
+/**
+ * Setup Backup dropdown menu keyboard & click interactions.
+ */
+function setupBackupDropdown() {
+  const wrapper = elements.backupDropdownWrapper;
+  const btn = elements.backupMenuBtn;
+  const menu = elements.backupDropdownMenu;
+  const items = [elements.exportTasksBtn, elements.importTasksBtn].filter(Boolean);
+
+  if (!wrapper || !btn || !menu) return;
+
+  function openMenu() {
+    menu.removeAttribute("hidden");
+    btn.setAttribute("aria-expanded", "true");
+    wrapper.setAttribute("data-open", "true");
+    if (items.length > 0) {
+      items[0].focus();
+    }
+  }
+
+  function closeMenu(returnFocusToBtn = false) {
+    menu.setAttribute("hidden", "");
+    btn.setAttribute("aria-expanded", "false");
+    wrapper.removeAttribute("data-open");
+    if (returnFocusToBtn) {
+      btn.focus();
+    }
+  }
+
+  function isMenuOpen() {
+    return btn.getAttribute("aria-expanded") === "true";
+  }
+
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (isMenuOpen()) {
+      closeMenu(false);
+    } else {
+      openMenu();
+    }
+  });
+
+  // Keyboard navigation within the dropdown
+  wrapper.addEventListener("keydown", (e) => {
+    if (!isMenuOpen()) {
+      if (e.key === "ArrowDown" || e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        openMenu();
+      }
+      return;
+    }
+
+    if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      closeMenu(true);
+      return;
+    }
+
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      const currentIndex = items.indexOf(document.activeElement);
+      const nextIndex = currentIndex === -1 || currentIndex === items.length - 1 ? 0 : currentIndex + 1;
+      items[nextIndex].focus();
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      const currentIndex = items.indexOf(document.activeElement);
+      const prevIndex = currentIndex <= 0 ? items.length - 1 : currentIndex - 1;
+      items[prevIndex].focus();
+    } else if (e.key === "Tab") {
+      closeMenu(false);
+    }
+  });
+
+  // Close when clicking outside
+  document.addEventListener("click", (e) => {
+    if (isMenuOpen() && !wrapper.contains(e.target)) {
+      closeMenu(false);
+    }
+  });
+
+  // When an item is chosen, close menu and return focus to Backup button
+  items.forEach((item) => {
+    item.addEventListener("click", () => {
+      closeMenu(true);
+    });
+  });
+}
+
+/**
+ * Initializes the dismissible browser storage tip banner.
+ */
+function initStorageTip() {
+  if (!elements.storageTipBanner) return;
+
+  let isDismissed = false;
+  try {
+    isDismissed = localStorage.getItem(STORAGE_KEYS.BACKUP_TIP_DISMISSED) === "true";
+  } catch (e) {
+    console.warn("Storage access failed for backup tip:", e);
+  }
+
+  if (!isDismissed) {
+    elements.storageTipBanner.style.display = "flex";
+  } else {
+    elements.storageTipBanner.style.display = "none";
+  }
+}
+
+/**
+ * Dismisses the browser storage tip banner and remembers the dismissal.
+ */
+function dismissStorageTip() {
+  if (!elements.storageTipBanner) return;
+
+  try {
+    localStorage.setItem(STORAGE_KEYS.BACKUP_TIP_DISMISSED, "true");
+  } catch (e) {
+    console.warn("Storage write failed for backup tip:", e);
+  }
+
+  elements.storageTipBanner.style.display = "none";
+}
+
+// ============================================================================
 // 10. Toast Notification System
 // ============================================================================
 
@@ -1125,6 +1552,50 @@ function setupEventListeners() {
       closeDeleteModal();
     }
   });
+
+  // Topbar Backup Dropdown & Actions
+  setupBackupDropdown();
+
+  if (elements.dismissStorageTipBtn) {
+    elements.dismissStorageTipBtn.addEventListener("click", dismissStorageTip);
+  }
+
+  if (elements.exportTasksBtn) {
+    elements.exportTasksBtn.addEventListener("click", exportTasks);
+  }
+
+  if (elements.importTasksBtn && elements.importFileInput) {
+    elements.importTasksBtn.addEventListener("click", () => {
+      elements.importFileInput.click();
+    });
+
+    elements.importFileInput.addEventListener("change", (e) => {
+      const file = e.target.files && e.target.files[0];
+      // Reset input value immediately so user can pick the exact same file again
+      e.target.value = "";
+      if (file) {
+        handleImportFile(file);
+      }
+    });
+  }
+
+  // Import Modal Action Buttons
+  if (elements.cancelImportBtn) {
+    elements.cancelImportBtn.addEventListener("click", closeImportModal);
+  }
+  if (elements.mergeImportBtn) {
+    elements.mergeImportBtn.addEventListener("click", applyImportMerge);
+  }
+  if (elements.replaceImportBtn) {
+    elements.replaceImportBtn.addEventListener("click", applyImportReplace);
+  }
+  if (elements.importModal) {
+    elements.importModal.addEventListener("click", (e) => {
+      if (e.target === elements.importModal) {
+        closeImportModal();
+      }
+    });
+  }
 
   // Add Task Form Submission
   elements.taskForm.addEventListener("submit", (e) => {
@@ -1366,6 +1837,7 @@ function setupEventListeners() {
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
       closeMobileSidebar();
+      closeImportModal();
     }
     // Alt + N shortcut to open task modal
     if (e.altKey && (e.key === "n" || e.key === "N")) {
@@ -1415,6 +1887,9 @@ function init() {
 
   // 5. Initial Render
   render();
+
+  // 6. Initialize Storage Tip Banner
+  initStorageTip();
 
   console.log("TaskFlow initialized successfully with", state.tasks.length, "tasks.");
 }
