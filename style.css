@@ -669,6 +669,21 @@ html[data-theme="light"] .theme-toggle-btn .moon-icon {
   box-shadow: 0 4px 12px rgba(225, 29, 72, 0.3);
 }
 
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none !important;
+  box-shadow: none !important;
+  pointer-events: none;
+}
+
+.btn-sm {
+  padding: 7px 14px;
+  font-size: 0.84rem;
+  border-radius: var(--radius-sm);
+  gap: 6px;
+}
+
 .icon-btn {
   width: 38px;
   height: 38px;
@@ -1028,6 +1043,101 @@ html[data-theme="light"] .theme-toggle-btn .moon-icon {
 
 .banner-clear-btn:hover {
   opacity: 0.8;
+}
+
+/* ==========================================================================
+   Task Selection Bar & Selection Mode
+   ========================================================================== */
+.task-selection-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 18px;
+  background-color: var(--bg-surface-elevated);
+  border: 1px solid var(--border-medium);
+  border-left: 3px solid var(--primary-500);
+  border-radius: var(--radius-md);
+  margin-bottom: 16px;
+  box-shadow: var(--shadow-sm);
+  animation: selectionBarEnter 0.2s ease-out;
+}
+
+@keyframes selectionBarEnter {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.selection-info-group {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.selection-count {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text-main);
+  letter-spacing: -0.01em;
+}
+
+.selection-hidden-note {
+  font-size: 0.82rem;
+  color: var(--stat-amber);
+  font-weight: 500;
+  line-height: 1.3;
+}
+
+html[data-theme="light"] .selection-hidden-note {
+  color: #b45309;
+}
+
+.selection-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* Task Card Selection Mode Styling */
+.task-card.selected {
+  border-color: var(--primary-500);
+  background-color: var(--primary-glow);
+  box-shadow: 0 0 0 1px var(--primary-500);
+}
+
+.task-select-checkbox {
+  width: 20px;
+  height: 20px;
+  min-width: 20px;
+  min-height: 20px;
+  border-radius: 4px;
+  accent-color: var(--primary-500);
+  cursor: pointer;
+  margin-top: 3px;
+  flex-shrink: 0;
+  transition: transform var(--transition-fast);
+}
+
+.task-select-checkbox:hover {
+  transform: scale(1.1);
+}
+
+/* While in selection mode, disable card action buttons */
+.task-card button:disabled,
+.task-card .task-checkbox-btn:disabled,
+.task-card .subtask-checkbox-btn:disabled,
+.task-card .action-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  pointer-events: none;
 }
 
 /* ==========================================================================
@@ -2197,5 +2307,24 @@ dialog {
 
   .restore-modal-footer {
     padding: 8px 16px 16px;
+  }
+
+  .task-selection-bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .selection-actions {
+    width: 100%;
+    display: flex;
+    gap: 6px;
+  }
+
+  .selection-actions .btn {
+    flex: 1;
+    justify-content: center;
+    padding: 8px 10px;
+    font-size: 0.8rem;
   }
 }

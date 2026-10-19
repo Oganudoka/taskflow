@@ -183,6 +183,10 @@
                 <span class="backup-item-title">Save a copy of my tasks</span>
                 <span class="backup-item-subtitle">Downloads a file to this device</span>
               </button>
+              <button type="button" class="backup-menu-item" id="selectTasksToSaveBtn" role="menuitem" tabindex="-1">
+                <span class="backup-item-title">Save selected tasks</span>
+                <span class="backup-item-subtitle">Choose which tasks to save</span>
+              </button>
               <button type="button" class="backup-menu-item" id="importTasksBtn" role="menuitem" tabindex="-1">
                 <span class="backup-item-title">Restore tasks from a copy</span>
                 <span class="backup-item-subtitle">Load a file you saved earlier</span>
@@ -386,6 +390,26 @@
           <div class="active-filter-banner" id="activeFilterBanner" style="display: none;">
             <span class="banner-text" id="activeFilterText">Filtered by: High Priority</span>
             <button class="banner-clear-btn" id="clearFilterBtn">Reset Filter</button>
+          </div>
+
+          <!-- Task Selection Bar -->
+          <div class="task-selection-bar" id="taskSelectionBar" style="display: none;" role="region" aria-label="Task selection">
+            <div class="selection-info-group">
+              <span class="selection-count" id="selectionCountText" aria-live="polite">0 selected</span>
+              <span class="selection-hidden-note" id="selectionHiddenNote" style="display: none;"></span>
+            </div>
+            <div class="selection-actions">
+              <button type="button" class="btn btn-secondary btn-sm" id="selectAllShownBtn">Select all shown</button>
+              <button type="button" class="btn btn-primary btn-sm" id="saveSelectedBtn" disabled>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+                  <polyline points="17 21 17 13 7 13 7 21"></polyline>
+                  <polyline points="7 3 7 8 15 8"></polyline>
+                </svg>
+                <span>Save selected</span>
+              </button>
+              <button type="button" class="btn btn-ghost btn-sm" id="cancelSelectionBtn">Cancel</button>
+            </div>
           </div>
 
           <!-- Task List -->

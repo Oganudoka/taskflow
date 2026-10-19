@@ -136,7 +136,9 @@ const state = {
   sortBy: "dueDateAsc",      // 'dueDateAsc' | 'dueDateDesc' | 'priority' | 'newest'
   theme: "dark",             // 'light' | 'dark'
   taskPendingDeletion: null, // Holds task ID during confirmation dialog
-  editingTaskId: null        // Holds task ID when editing an existing task
+  editingTaskId: null,       // Holds task ID when editing an existing task
+  isSelectionMode: false,    // Tracks if task selection mode is active
+  selectedTaskIds: new Set() // Set of selected task IDs
 };
 
 // ============================================================================
@@ -311,6 +313,15 @@ const elements = {
   importFileInput: document.getElementById("importFileInput"),
   exportTasksBtn: document.getElementById("exportTasksBtn"),
 
+  // Task Selection Bar
+  selectTasksToSaveBtn: document.getElementById("selectTasksToSaveBtn"),
+  taskSelectionBar: document.getElementById("taskSelectionBar"),
+  selectionCountText: document.getElementById("selectionCountText"),
+  selectionHiddenNote: document.getElementById("selectionHiddenNote"),
+  selectAllShownBtn: document.getElementById("selectAllShownBtn"),
+  saveSelectedBtn: document.getElementById("saveSelectedBtn"),
+  cancelSelectionBtn: document.getElementById("cancelSelectionBtn"),
+
   // Restore Tasks Modal
   importModal: document.getElementById("importModal"),
   importSummaryPreview: document.getElementById("importSummaryPreview"),
@@ -412,6 +423,10 @@ function deleteTask(taskId) {
   if (index === -1) return;
 
   const [removedTask] = state.tasks.splice(index, 1);
+  if (state.selectedTaskIds.has(taskId)) {
+    state.selectedTaskIds.delete(taskId);
+  }
+  pruneSelectedTaskIds();
   saveTasksToStorage(state.tasks);
   render();
   showToast(`"${removedTask.title.slice(0, 24)}..." deleted.`, "danger");
@@ -487,6 +502,9 @@ function render() {
   renderStats();
   renderFilters();
   renderTaskList();
+  if (state.isSelectionMode) {
+    renderSelectionBar();
+  }
 }
 
 /**
@@ -666,8 +684,10 @@ function renderTaskList() {
     const dateInfo = formatDueDate(task.dueDate, task.completed);
     const isOverdue = !task.completed && dateInfo.isOverdue;
     const taskCategory = normalizeCategory(task.category);
+    const isSelected = state.isSelectionMode && state.selectedTaskIds.has(task.id);
+    const btnDisabledAttr = state.isSelectionMode ? "disabled" : "";
 
-    li.className = `task-card ${task.completed ? "completed" : ""} ${isOverdue ? "overdue" : ""}`;
+    li.className = `task-card ${task.completed ? "completed" : ""} ${isOverdue ? "overdue" : ""} ${isSelected ? "selected" : ""}`;
     li.setAttribute("data-id", task.id);
 
     const hasSubtasks = Array.isArray(task.subtasks) && task.subtasks.length > 0;
@@ -703,6 +723,7 @@ function renderTaskList() {
                   data-action="toggle-subtask"
                   data-task-id="${escapeHTML(task.id)}"
                   data-subtask-id="${escapeHTML(st.id)}"
+                  ${btnDisabledAttr}
                 >
                   <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round">
                     <polyline points="20 6 9 17 4 12"></polyline>
@@ -720,6 +741,20 @@ function renderTaskList() {
 
     li.innerHTML = `
       <div class="task-main-col">
+        ${
+          state.isSelectionMode
+            ? `
+          <input
+            type="checkbox"
+            class="task-select-checkbox"
+            data-action="select-task"
+            data-id="${escapeHTML(task.id)}"
+            aria-label="Select task: ${escapeHTML(task.title)}"
+            ${isSelected ? "checked" : ""}
+          >
+        `
+            : ""
+        }
         <!-- Toggle Checkbox -->
         <button
           type="button"
@@ -727,6 +762,7 @@ function renderTaskList() {
           aria-label="${task.completed ? "Mark task as incomplete" : "Mark task as complete"}"
           data-action="toggle"
           data-id="${task.id}"
+          ${btnDisabledAttr}
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="20 6 9 17 4 12"></polyline>
@@ -775,6 +811,7 @@ function renderTaskList() {
             data-action="edit"
             data-id="${task.id}"
             title="Edit task"
+            ${btnDisabledAttr}
           >
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
@@ -788,6 +825,7 @@ function renderTaskList() {
             data-action="delete"
             data-id="${task.id}"
             title="Delete task"
+            ${btnDisabledAttr}
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <polyline points="3 6 5 6 21 6"></polyline>
@@ -802,6 +840,10 @@ function renderTaskList() {
 
     elements.taskList.appendChild(li);
   });
+
+  if (state.isSelectionMode) {
+    renderSelectionBar();
+  }
 }
 
 /**
@@ -1102,6 +1144,171 @@ function exportTasks() {
   }
 }
 
+// ============================================================================
+// 10b. Task Selection Mode & Save Selected Tasks
+// ============================================================================
+
+/**
+ * Starts task selection mode.
+ */
+function startSelectionMode() {
+  state.isSelectionMode = true;
+  state.selectedTaskIds.clear();
+  if (elements.taskSelectionBar) {
+    elements.taskSelectionBar.style.display = "flex";
+  }
+  renderTaskList();
+  renderSelectionBar();
+}
+
+/**
+ * Exits task selection mode and clears any active selection.
+ */
+function exitSelectionMode() {
+  state.isSelectionMode = false;
+  state.selectedTaskIds.clear();
+  if (elements.taskSelectionBar) {
+    elements.taskSelectionBar.style.display = "none";
+  }
+  renderTaskList();
+}
+
+/**
+ * Removes any IDs from selectedTaskIds that no longer exist in state.tasks.
+ */
+function pruneSelectedTaskIds() {
+  const existingIds = new Set(state.tasks.map((t) => t.id));
+  for (const id of state.selectedTaskIds) {
+    if (!existingIds.has(id)) {
+      state.selectedTaskIds.delete(id);
+    }
+  }
+}
+
+/**
+ * Toggles selection of a task by ID.
+ * Optionally forces a specific boolean state.
+ */
+function toggleTaskSelection(taskId, forceState) {
+  if (!taskId) return;
+  const shouldSelect =
+    typeof forceState === "boolean"
+      ? forceState
+      : !state.selectedTaskIds.has(taskId);
+
+  if (shouldSelect) {
+    state.selectedTaskIds.add(taskId);
+  } else {
+    state.selectedTaskIds.delete(taskId);
+  }
+
+  // Update card directly in the DOM
+  const card = elements.taskList.querySelector(`li.task-card[data-id="${taskId}"]`);
+  if (card) {
+    card.classList.toggle("selected", shouldSelect);
+    const checkbox = card.querySelector(".task-select-checkbox");
+    if (checkbox) {
+      checkbox.checked = shouldSelect;
+    }
+  }
+
+  renderSelectionBar();
+}
+
+/**
+ * Selects all tasks currently visible after applying active filters and search.
+ */
+function selectAllShownTasks() {
+  const visibleTasks = getFilteredAndSortedTasks();
+  visibleTasks.forEach((task) => {
+    state.selectedTaskIds.add(task.id);
+  });
+
+  visibleTasks.forEach((task) => {
+    const card = elements.taskList.querySelector(`li.task-card[data-id="${task.id}"]`);
+    if (card) {
+      card.classList.add("selected");
+      const checkbox = card.querySelector(".task-select-checkbox");
+      if (checkbox) checkbox.checked = true;
+    }
+  });
+
+  renderSelectionBar();
+}
+
+/**
+ * Renders the selection bar count, hidden items notification, and button state.
+ */
+function renderSelectionBar() {
+  if (!state.isSelectionMode || !elements.taskSelectionBar) return;
+  pruneSelectedTaskIds();
+
+  const totalSelected = state.selectedTaskIds.size;
+  if (elements.selectionCountText) {
+    elements.selectionCountText.textContent = `${totalSelected} selected`;
+  }
+
+  if (elements.saveSelectedBtn) {
+    elements.saveSelectedBtn.disabled = totalSelected === 0;
+  }
+
+  // Hidden selections: if some selected tasks are hidden by current filters or search,
+  // show a note like "2 of your 5 selected tasks are hidden by filters"
+  const visibleTasks = getFilteredAndSortedTasks();
+  const visibleSelected = visibleTasks.filter((t) => state.selectedTaskIds.has(t.id)).length;
+  const hiddenCount = totalSelected - visibleSelected;
+
+  if (elements.selectionHiddenNote) {
+    if (hiddenCount > 0) {
+      elements.selectionHiddenNote.style.display = "block";
+      const noun = totalSelected === 1 ? "task is" : "tasks are";
+      elements.selectionHiddenNote.textContent = `${hiddenCount} of your ${totalSelected} selected ${noun} hidden by filters`;
+    } else {
+      elements.selectionHiddenNote.style.display = "none";
+      elements.selectionHiddenNote.textContent = "";
+    }
+  }
+}
+
+/**
+ * Downloads selected tasks as taskflow-selected-YYYY-MM-DD.json in identical format to full backup.
+ */
+function saveSelectedTasks() {
+  pruneSelectedTaskIds();
+  const selectedTasks = state.tasks.filter((t) => state.selectedTaskIds.has(t.id));
+  if (selectedTasks.length === 0) {
+    showToast("You have no tasks selected to save.", "info");
+    return;
+  }
+
+  try {
+    const jsonStr = JSON.stringify(selectedTasks, null, 2);
+    const blob = new Blob([jsonStr], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const dateStr = getFormattedDateOffset(0);
+    const filename = `taskflow-selected-${dateStr}.json`;
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+
+    setTimeout(() => {
+      URL.revokeObjectURL(url);
+    }, 100);
+
+    const count = selectedTasks.length;
+    showToast(`Saved ${count} ${count === 1 ? "task" : "tasks"} to a file. Keep it somewhere safe.`, "success");
+
+    exitSelectionMode();
+  } catch (err) {
+    console.error("Save selected tasks failed:", err);
+    showToast("Could not save your tasks. Please try again.", "danger");
+  }
+}
+
 /**
  * Opens the Restore Modal dialog with a preview summary and replace warning.
  */
@@ -1292,6 +1499,7 @@ function applyImportMerge() {
   const newTasks = pendingImportTasks.filter((t) => !existingIds.has(t.id));
 
   state.tasks = [...newTasks, ...state.tasks];
+  pruneSelectedTaskIds();
 
   try {
     saveTasksToStorage(state.tasks);
@@ -1322,6 +1530,7 @@ function applyImportReplace() {
   }
 
   state.tasks = [...pendingImportTasks];
+  pruneSelectedTaskIds();
 
   try {
     saveTasksToStorage(state.tasks);
@@ -1336,53 +1545,64 @@ function applyImportReplace() {
 }
 
 /**
+ * Closes the Backup dropdown menu.
+ */
+function closeBackupMenu(returnFocusToBtn = false) {
+  if (!elements.backupMenuBtn || !elements.backupDropdownMenu || !elements.backupDropdownWrapper) return;
+  elements.backupDropdownMenu.setAttribute("hidden", "");
+  elements.backupMenuBtn.setAttribute("aria-expanded", "false");
+  elements.backupDropdownWrapper.removeAttribute("data-open");
+  if (returnFocusToBtn) {
+    elements.backupMenuBtn.focus();
+  }
+}
+
+/**
+ * Opens the Backup dropdown menu and moves focus to first item.
+ */
+function openBackupMenu() {
+  if (!elements.backupMenuBtn || !elements.backupDropdownMenu || !elements.backupDropdownWrapper) return;
+  elements.backupDropdownMenu.removeAttribute("hidden");
+  elements.backupMenuBtn.setAttribute("aria-expanded", "true");
+  elements.backupDropdownWrapper.setAttribute("data-open", "true");
+  const firstItem = elements.backupDropdownMenu.querySelector(".backup-menu-item");
+  if (firstItem) {
+    firstItem.focus();
+  }
+}
+
+/**
+ * Returns whether Backup dropdown menu is currently open.
+ */
+function isBackupMenuOpen() {
+  return elements.backupMenuBtn && elements.backupMenuBtn.getAttribute("aria-expanded") === "true";
+}
+
+/**
  * Setup Backup dropdown menu keyboard & click interactions.
  */
 function setupBackupDropdown() {
   const wrapper = elements.backupDropdownWrapper;
   const btn = elements.backupMenuBtn;
-  const menu = elements.backupDropdownMenu;
-  const items = [elements.exportTasksBtn, elements.importTasksBtn].filter(Boolean);
+  const items = [elements.exportTasksBtn, elements.selectTasksToSaveBtn, elements.importTasksBtn].filter(Boolean);
 
-  if (!wrapper || !btn || !menu) return;
-
-  function openMenu() {
-    menu.removeAttribute("hidden");
-    btn.setAttribute("aria-expanded", "true");
-    wrapper.setAttribute("data-open", "true");
-    if (items.length > 0) {
-      items[0].focus();
-    }
-  }
-
-  function closeMenu(returnFocusToBtn = false) {
-    menu.setAttribute("hidden", "");
-    btn.setAttribute("aria-expanded", "false");
-    wrapper.removeAttribute("data-open");
-    if (returnFocusToBtn) {
-      btn.focus();
-    }
-  }
-
-  function isMenuOpen() {
-    return btn.getAttribute("aria-expanded") === "true";
-  }
+  if (!wrapper || !btn) return;
 
   btn.addEventListener("click", (e) => {
     e.stopPropagation();
-    if (isMenuOpen()) {
-      closeMenu(false);
+    if (isBackupMenuOpen()) {
+      closeBackupMenu(false);
     } else {
-      openMenu();
+      openBackupMenu();
     }
   });
 
   // Keyboard navigation within the dropdown
   wrapper.addEventListener("keydown", (e) => {
-    if (!isMenuOpen()) {
+    if (!isBackupMenuOpen()) {
       if (e.key === "ArrowDown" || e.key === "Enter" || e.key === " ") {
         e.preventDefault();
-        openMenu();
+        openBackupMenu();
       }
       return;
     }
@@ -1390,7 +1610,7 @@ function setupBackupDropdown() {
     if (e.key === "Escape") {
       e.preventDefault();
       e.stopPropagation();
-      closeMenu(true);
+      closeBackupMenu(true);
       return;
     }
 
@@ -1405,23 +1625,30 @@ function setupBackupDropdown() {
       const prevIndex = currentIndex <= 0 ? items.length - 1 : currentIndex - 1;
       items[prevIndex].focus();
     } else if (e.key === "Tab") {
-      closeMenu(false);
+      closeBackupMenu(false);
     }
   });
 
   // Close when clicking outside
   document.addEventListener("click", (e) => {
-    if (isMenuOpen() && !wrapper.contains(e.target)) {
-      closeMenu(false);
+    if (isBackupMenuOpen() && !wrapper.contains(e.target)) {
+      closeBackupMenu(false);
     }
   });
 
   // When an item is chosen, close menu and return focus to Backup button
   items.forEach((item) => {
     item.addEventListener("click", () => {
-      closeMenu(true);
+      closeBackupMenu(true);
     });
   });
+
+  // Save selected tasks option
+  if (elements.selectTasksToSaveBtn) {
+    elements.selectTasksToSaveBtn.addEventListener("click", () => {
+      startSelectionMode();
+    });
+  }
 }
 
 /**
@@ -1789,8 +2016,46 @@ function setupEventListeners() {
     render();
   });
 
+  // Task Selection Bar Buttons
+  if (elements.selectAllShownBtn) {
+    elements.selectAllShownBtn.addEventListener("click", selectAllShownTasks);
+  }
+  if (elements.saveSelectedBtn) {
+    elements.saveSelectedBtn.addEventListener("click", saveSelectedTasks);
+  }
+  if (elements.cancelSelectionBtn) {
+    elements.cancelSelectionBtn.addEventListener("click", exitSelectionMode);
+  }
+
+  // Task List Selection checkbox change
+  elements.taskList.addEventListener("change", (e) => {
+    if (!state.isSelectionMode) return;
+    const checkbox = e.target.closest(".task-select-checkbox");
+    if (checkbox) {
+      const taskId = checkbox.dataset.id;
+      if (taskId) {
+        toggleTaskSelection(taskId, checkbox.checked);
+      }
+    }
+  });
+
   // Task List Event Delegation (Clicking checkbox or delete button)
   elements.taskList.addEventListener("click", (e) => {
+    // While in selection mode, disable card buttons and toggle selection
+    if (state.isSelectionMode) {
+      if (e.target.closest(".task-select-checkbox")) {
+        return; // Handled by change event on checkbox
+      }
+      const card = e.target.closest(".task-card");
+      if (card) {
+        const taskId = card.dataset.id;
+        if (taskId) {
+          toggleTaskSelection(taskId);
+        }
+      }
+      return;
+    }
+
     // 0. Toggle subtask completion
     const subtaskToggle = e.target.closest('[data-action="toggle-subtask"]');
     if (subtaskToggle) {
@@ -1833,11 +2098,45 @@ function setupEventListeners() {
   elements.sidebarCloseBtn.addEventListener("click", closeMobileSidebar);
   elements.sidebarBackdrop.addEventListener("click", closeMobileSidebar);
 
-  // Global Keyboard Shortcuts (e.g. Esc closes modals/sidebar, Alt+N opens Add Task)
+  // Global Keyboard Shortcuts (Escape priority order & Alt+N)
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
-      closeMobileSidebar();
-      closeImportModal();
+      // 1. Mobile sidebar
+      if (elements.sidebar && elements.sidebar.classList.contains("open")) {
+        e.preventDefault();
+        closeMobileSidebar();
+        return;
+      }
+      // 2. Add / Edit Task Modal
+      if (elements.taskModal && elements.taskModal.open) {
+        e.preventDefault();
+        closeTaskModal();
+        return;
+      }
+      // 3. Delete Confirmation Modal
+      if (elements.deleteConfirmModal && elements.deleteConfirmModal.open) {
+        e.preventDefault();
+        closeDeleteModal();
+        return;
+      }
+      // 4. Restore Tasks Modal
+      if (elements.importModal && elements.importModal.open) {
+        e.preventDefault();
+        closeImportModal();
+        return;
+      }
+      // 5. Backup Dropdown Menu
+      if (isBackupMenuOpen()) {
+        e.preventDefault();
+        closeBackupMenu(true);
+        return;
+      }
+      // 6. Selection Mode (only when nothing else is open)
+      if (state.isSelectionMode) {
+        e.preventDefault();
+        exitSelectionMode();
+        return;
+      }
     }
     // Alt + N shortcut to open task modal
     if (e.altKey && (e.key === "n" || e.key === "N")) {
