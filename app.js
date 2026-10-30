@@ -19,6 +19,23 @@
 const VALID_CATEGORIES = ["Personal", "Work", "School"];
 const DEFAULT_CATEGORY = "Personal";
 
+// ============================================================================
+// 1b. Supabase Client Initialization
+// ============================================================================
+var supabaseClient = null;
+try {
+  if (
+    typeof supabase !== "undefined" &&
+    typeof SUPABASE_CONFIG !== "undefined" &&
+    SUPABASE_CONFIG.url &&
+    SUPABASE_CONFIG.publishableKey
+  ) {
+    supabaseClient = supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.publishableKey);
+  }
+} catch (err) {
+  console.error("Failed to initialize Supabase client:", err.message);
+}
+
 /**
  * Normalizes and validates a category name.
  * Falls back to "Personal" if invalid or missing.
@@ -138,8 +155,12 @@ const state = {
   taskPendingDeletion: null, // Holds task ID during confirmation dialog
   editingTaskId: null,       // Holds task ID when editing an existing task
   isSelectionMode: false,    // Tracks if task selection mode is active
-  selectedTaskIds: new Set() // Set of selected task IDs
+  selectedTaskIds: new Set(), // Set of selected task IDs
+  currentUser: null,         // Holds authenticated user object
+  authMode: "login",         // 'login' | 'signup'
+  isAuthSubmitting: false    // Prevents concurrent auth requests
 };
+window.state = state;
 
 // ============================================================================
 // 3. Storage Helpers (LocalStorage)
@@ -223,6 +244,29 @@ function saveThemeToStorage(theme) {
 // 4. DOM Elements Cache
 // ============================================================================
 const elements = {
+  // Auth Elements & Screens
+  appLoadingScreen: document.getElementById("appLoadingScreen"),
+  authScreen: document.getElementById("authScreen"),
+  appContainer: document.getElementById("appContainer"),
+  authThemeToggleBtn: document.getElementById("authThemeToggleBtn"),
+  authThemeToggleText: document.getElementById("authThemeToggleText"),
+  authTitle: document.getElementById("authTitle"),
+  authSubtitle: document.getElementById("authSubtitle"),
+  authAlertDanger: document.getElementById("authAlertDanger"),
+  authAlertInfo: document.getElementById("authAlertInfo"),
+  authForm: document.getElementById("authForm"),
+  authEmail: document.getElementById("authEmail"),
+  authPassword: document.getElementById("authPassword"),
+  authSubmitBtn: document.getElementById("authSubmitBtn"),
+  authSubmitBtnText: document.getElementById("authSubmitBtnText"),
+  authSwitchPrompt: document.getElementById("authSwitchPrompt"),
+  authSwitchBtn: document.getElementById("authSwitchBtn"),
+
+  // User Account in Topbar
+  userAccountBadge: document.getElementById("userAccountBadge"),
+  userEmailText: document.getElementById("userEmailText"),
+  logoutBtn: document.getElementById("logoutBtn"),
+
   // Theme & Layout
   html: document.documentElement,
   themeToggleBtn: document.getElementById("themeToggleBtn"),
@@ -869,11 +913,24 @@ function escapeHTML(str) {
 function setTheme(theme) {
   state.theme = theme;
   elements.html.setAttribute("data-theme", theme);
-  elements.themeToggleText.textContent = theme === "dark" ? "Light Mode" : "Dark Mode";
-  elements.themeToggleBtn.setAttribute(
-    "aria-label",
-    theme === "dark" ? "Switch to light theme" : "Switch to dark theme"
-  );
+  if (elements.themeToggleText) {
+    elements.themeToggleText.textContent = theme === "dark" ? "Light Mode" : "Dark Mode";
+  }
+  if (elements.themeToggleBtn) {
+    elements.themeToggleBtn.setAttribute(
+      "aria-label",
+      theme === "dark" ? "Switch to light theme" : "Switch to dark theme"
+    );
+  }
+  if (elements.authThemeToggleText) {
+    elements.authThemeToggleText.textContent = theme === "dark" ? "Light Mode" : "Dark Mode";
+  }
+  if (elements.authThemeToggleBtn) {
+    elements.authThemeToggleBtn.setAttribute(
+      "aria-label",
+      theme === "dark" ? "Switch to light theme" : "Switch to dark theme"
+    );
+  }
   saveThemeToStorage(theme);
 }
 
@@ -2168,29 +2225,384 @@ function updateDateDisplay() {
 }
 
 // ============================================================================
-// 12. Application Initialization
+// 12. Supabase Authentication Handlers & Flow
 // ============================================================================
-function init() {
-  // 1. Load Theme
+
+/**
+ * Switches the auth card between 'login' and 'signup' modes.
+ */
+function setAuthMode(mode) {
+  state.authMode = mode;
+  hideAuthAlerts();
+
+  if (mode === "signup") {
+    if (elements.authTitle) elements.authTitle.textContent = "Create your account";
+    if (elements.authSubtitle) elements.authSubtitle.textContent = "Get started with your free TaskFlow account.";
+    if (elements.authPassword) elements.authPassword.setAttribute("autocomplete", "new-password");
+    if (elements.authSubmitBtnText) elements.authSubmitBtnText.textContent = "Create account";
+    if (elements.authSwitchPrompt) elements.authSwitchPrompt.textContent = "Already have an account?";
+    if (elements.authSwitchBtn) elements.authSwitchBtn.textContent = "Log in";
+  } else {
+    if (elements.authTitle) elements.authTitle.textContent = "Log in to TaskFlow";
+    if (elements.authSubtitle) elements.authSubtitle.textContent = "Welcome back! Please enter your details.";
+    if (elements.authPassword) elements.authPassword.setAttribute("autocomplete", "current-password");
+    if (elements.authSubmitBtnText) elements.authSubmitBtnText.textContent = "Log in";
+    if (elements.authSwitchPrompt) elements.authSwitchPrompt.textContent = "Don't have an account?";
+    if (elements.authSwitchBtn) elements.authSwitchBtn.textContent = "Create account";
+  }
+
+  if (elements.authEmail) elements.authEmail.focus();
+}
+
+/**
+ * Displays an alert message in the auth card.
+ * Uses textContent to ensure all messages are safe from HTML injection.
+ */
+function showAuthAlert(type, message) {
+  if (type === "danger") {
+    if (elements.authAlertDanger) {
+      elements.authAlertDanger.textContent = message;
+      elements.authAlertDanger.style.display = "block";
+    }
+    if (elements.authAlertInfo) {
+      elements.authAlertInfo.style.display = "none";
+      elements.authAlertInfo.textContent = "";
+    }
+  } else {
+    if (elements.authAlertInfo) {
+      elements.authAlertInfo.textContent = message;
+      elements.authAlertInfo.style.display = "block";
+    }
+    if (elements.authAlertDanger) {
+      elements.authAlertDanger.style.display = "none";
+      elements.authAlertDanger.textContent = "";
+    }
+  }
+}
+
+/**
+ * Hides all auth card alert banners.
+ */
+function hideAuthAlerts() {
+  if (elements.authAlertDanger) {
+    elements.authAlertDanger.style.display = "none";
+    elements.authAlertDanger.textContent = "";
+  }
+  if (elements.authAlertInfo) {
+    elements.authAlertInfo.style.display = "none";
+    elements.authAlertInfo.textContent = "";
+  }
+}
+
+/**
+ * Converts Supabase auth errors into friendly, plain-language messages.
+ * No technical jargon (e.g. 400, schema, payload, token) is shown.
+ */
+function mapAuthError(err) {
+  if (!err) return "Something went wrong. Please try again.";
+  const msg = String(err.message || "").toLowerCase();
+  const status = err.status || 0;
+
+  // Network or reachability errors
+  if (
+    msg.includes("fetch") ||
+    msg.includes("network") ||
+    msg.includes("failed to fetch") ||
+    msg.includes("abort") ||
+    msg.includes("load failed")
+  ) {
+    return "Can't reach the server. Check your internet connection.";
+  }
+
+  // Rate limiting / Too many attempts (429)
+  if (status === 429 || msg.includes("rate limit") || msg.includes("too many requests") || msg.includes("over_email_send_rate_limit")) {
+    return "Too many attempts. Please wait a minute and try again.";
+  }
+
+  // Invalid credentials
+  if (
+    msg.includes("invalid login credentials") ||
+    msg.includes("invalid credentials") ||
+    msg.includes("invalid_grant")
+  ) {
+    return "Wrong email or password.";
+  }
+
+  // User already exists
+  if (
+    msg.includes("already registered") ||
+    msg.includes("already in use") ||
+    msg.includes("user already exists") ||
+    msg.includes("user_already_exists")
+  ) {
+    return "That email already has an account. Try logging in.";
+  }
+
+  // Email format error
+  if (msg.includes("invalid email") || msg.includes("valid email") || msg.includes("email address")) {
+    return "Please enter a valid email.";
+  }
+
+  // Password length or complexity error
+  if (msg.includes("password should be at least") || msg.includes("password is too short")) {
+    return "Password must be at least 8 characters long.";
+  }
+
+  // General fallback
+  return "Something went wrong. Please try again.";
+}
+
+/**
+ * Handles submission of the login/create account form.
+ */
+async function handleAuthSubmit(e) {
+  if (e) e.preventDefault();
+  if (state.isAuthSubmitting) return;
+
+  hideAuthAlerts();
+
+  const email = elements.authEmail ? elements.authEmail.value.trim() : "";
+  const password = elements.authPassword ? elements.authPassword.value : "";
+
+  // 1. Email validation: basic pattern check
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!email || !emailRegex.test(email)) {
+    showAuthAlert("danger", "Please enter a valid email.");
+    if (elements.authEmail) elements.authEmail.focus();
+    return;
+  }
+
+  // 2. Password validation: minimum 8 characters, checked before sending
+  if (!password || password.length < 8) {
+    showAuthAlert("danger", "Password must be at least 8 characters long.");
+    if (elements.authPassword) elements.authPassword.focus();
+    return;
+  }
+
+  if (!supabaseClient) {
+    showAuthAlert("danger", "Can't reach the server. Check your internet connection.");
+    return;
+  }
+
+  // Set loading state: disable button, show "Please wait..."
+  state.isAuthSubmitting = true;
+  if (elements.authSubmitBtn) elements.authSubmitBtn.disabled = true;
+  if (elements.authSubmitBtnText) elements.authSubmitBtnText.textContent = "Please wait...";
+
+  try {
+    if (state.authMode === "login") {
+      const { data, error } = await supabaseClient.auth.signInWithPassword({
+        email,
+        password
+      });
+
+      if (error) {
+        showAuthAlert("danger", mapAuthError(error));
+        return;
+      }
+
+      if (data?.user) {
+        handleAuthSuccess(data.user);
+      }
+    } else {
+      // Create account mode
+      const { data, error } = await supabaseClient.auth.signUp({
+        email,
+        password
+      });
+
+      if (error) {
+        showAuthAlert("danger", mapAuthError(error));
+        return;
+      }
+
+      if (data?.session) {
+        // Logged in immediately
+        handleAuthSuccess(data.user);
+      } else if (data?.user) {
+        // Confirmation email required
+        showAuthAlert("info", "Check your email to confirm your account.");
+      } else {
+        showAuthAlert("info", "Check your email to confirm your account.");
+      }
+    }
+  } catch (err) {
+    showAuthAlert("danger", mapAuthError(err));
+  } finally {
+    state.isAuthSubmitting = false;
+    if (elements.authSubmitBtn) elements.authSubmitBtn.disabled = false;
+    if (elements.authSubmitBtnText) {
+      elements.authSubmitBtnText.textContent = state.authMode === "signup" ? "Create account" : "Log in";
+    }
+  }
+}
+
+/**
+ * Handles successful authentication transition to dashboard.
+ */
+function handleAuthSuccess(user) {
+  state.currentUser = user;
+
+  // 1. Hide loading screen and auth screen
+  if (elements.appLoadingScreen) elements.appLoadingScreen.style.display = "none";
+  if (elements.authScreen) elements.authScreen.style.display = "none";
+
+  // 2. Reveal dashboard container
+  if (elements.appContainer) elements.appContainer.style.display = "flex";
+
+  // 3. Render user email in topbar chip safely with textContent
+  if (elements.userAccountBadge) elements.userAccountBadge.style.display = "flex";
+  if (elements.userEmailText) {
+    elements.userEmailText.textContent = user?.email || "";
+  }
+
+  // 4. Clear auth form password and alerts
+  if (elements.authPassword) elements.authPassword.value = "";
+  hideAuthAlerts();
+
+  // 5. Load tasks from localStorage (tasks stay in localStorage for now)
+  state.tasks = loadTasksFromStorage();
+
+  // 6. Update current date
+  updateDateDisplay();
+
+  // 7. Setup dashboard event listeners (guaranteed to attach only once)
+  setupEventListeners();
+
+  // 8. Render dashboard and initialize storage tip
+  render();
+  initStorageTip();
+}
+
+/**
+ * Logs the user out, resets UI states, closes open modals, and reveals the auth screen.
+ */
+async function handleLogOut() {
+  // 1. Close any open modals
+  closeTaskModal();
+  closeDeleteModal();
+  closeImportModal();
+
+  // 2. Close Backup menu
+  closeBackupMenu(false);
+
+  // 3. Exit task selection mode
+  exitSelectionMode();
+
+  // 4. Close mobile sidebar
+  closeMobileSidebar();
+
+  // 5. Clear auth form fields
+  if (elements.authEmail) elements.authEmail.value = "";
+  if (elements.authPassword) elements.authPassword.value = "";
+  hideAuthAlerts();
+
+  // 6. Sign out via Supabase
+  try {
+    if (supabaseClient) {
+      await supabaseClient.auth.signOut();
+    }
+  } catch (err) {
+    // Silently handle any signout network exceptions
+  }
+
+  state.currentUser = null;
+
+  // 7. Hide dashboard, show auth screen
+  if (elements.appContainer) elements.appContainer.style.display = "none";
+  if (elements.userAccountBadge) elements.userAccountBadge.style.display = "none";
+  if (elements.authScreen) elements.authScreen.style.display = "flex";
+
+  setAuthMode("login");
+  showToast("You have been logged out.", "info");
+}
+
+let isAuthListenersAttached = false;
+
+/**
+ * Wires authentication event listeners once at startup.
+ */
+function setupAuthEventListeners() {
+  if (isAuthListenersAttached) return;
+  isAuthListenersAttached = true;
+
+  if (elements.authThemeToggleBtn) {
+    elements.authThemeToggleBtn.addEventListener("click", toggleTheme);
+  }
+
+  if (elements.authForm) {
+    elements.authForm.addEventListener("submit", handleAuthSubmit);
+  }
+
+  if (elements.authSwitchBtn) {
+    elements.authSwitchBtn.addEventListener("click", () => {
+      setAuthMode(state.authMode === "login" ? "signup" : "login");
+    });
+  }
+
+  if (elements.logoutBtn) {
+    elements.logoutBtn.addEventListener("click", handleLogOut);
+  }
+}
+
+// Expose helpers for testing and external integrations
+window.mapAuthError = mapAuthError;
+window.handleAuthSuccess = handleAuthSuccess;
+window.handleLogOut = handleLogOut;
+window.startSelectionMode = startSelectionMode;
+window.closeTaskModal = closeTaskModal;
+window.setAuthMode = setAuthMode;
+
+// ============================================================================
+// 13. Application Initialization
+// ============================================================================
+async function init() {
+  // 1. Load and apply saved Theme
   const savedTheme = loadThemeFromStorage();
   setTheme(savedTheme);
 
-  // 2. Load Tasks
-  state.tasks = loadTasksFromStorage();
+  // 2. Wire auth event listeners (runs only once)
+  setupAuthEventListeners();
 
-  // 3. Update Current Date
-  updateDateDisplay();
+  // 3. If Supabase client could not be loaded, show error state on auth screen
+  if (!supabaseClient) {
+    if (elements.appLoadingScreen) elements.appLoadingScreen.style.display = "none";
+    if (elements.authScreen) elements.authScreen.style.display = "flex";
+    showAuthAlert("danger", "Can't reach the server. Check your internet connection.");
+    return;
+  }
 
-  // 4. Attach Event Listeners
-  setupEventListeners();
+  // 4. Subscribe to Supabase auth state change events
+  supabaseClient.auth.onAuthStateChange((event, session) => {
+    if (event === "SIGNED_IN" && session?.user) {
+      handleAuthSuccess(session.user);
+    }
+  });
 
-  // 5. Initial Render
-  render();
+  // 5. Check existing session (persists across page reloads via supabase-js)
+  try {
+    const { data, error } = await supabaseClient.auth.getSession();
 
-  // 6. Initialize Storage Tip Banner
-  initStorageTip();
+    // Hide initial loading screen
+    if (elements.appLoadingScreen) elements.appLoadingScreen.style.display = "none";
 
-  console.log("TaskFlow initialized successfully with", state.tasks.length, "tasks.");
+    if (error) {
+      if (elements.authScreen) elements.authScreen.style.display = "flex";
+      showAuthAlert("danger", mapAuthError(error));
+      return;
+    }
+
+    if (data?.session?.user) {
+      handleAuthSuccess(data.session.user);
+    } else {
+      if (elements.authScreen) elements.authScreen.style.display = "flex";
+      setAuthMode("login");
+    }
+  } catch (err) {
+    if (elements.appLoadingScreen) elements.appLoadingScreen.style.display = "none";
+    if (elements.authScreen) elements.authScreen.style.display = "flex";
+    showAuthAlert("danger", mapAuthError(err));
+  }
 }
 
 // Boot application when DOM is ready
